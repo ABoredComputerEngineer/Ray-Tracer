@@ -1,3 +1,5 @@
+#ifndef HANDMADE_MATH_ZZ
+#define HANDMADE_MATH_ZZ
 /*
   HandmadeMath.h v1.9.0
 
@@ -281,6 +283,7 @@ typedef union hmm_vec3
     {
         return Elements[Index];
     }
+    
 #endif
 } hmm_vec3;
 
@@ -3227,4 +3230,10 @@ hmm_quaternion HMM_QuaternionFromAxisAngle(hmm_vec3 Axis, float AngleOfRotation)
 HMM_INLINE hmm_vec3 HMM_Reflect( hmm_vec3 v, hmm_vec3 n ){
   return  v - 2 * HMM_DotVec3( v, n ) * n;
 }
+
+typedef hmm_vec2 v2;
+typedef hmm_vec3 v3;
+typedef hmm_vec4 v4;
+typedef hmm_mat4 m4;
 #endif /* HANDMADE_MATH_IMPLEMENTATION */
+#endif

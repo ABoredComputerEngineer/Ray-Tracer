@@ -136,6 +136,10 @@ typedef struct strHdr {
 #ifndef MAX
   #define MAX(x,y) ( ( ( x ) > ( y ) ) ? ( x ) : ( y ) )
 #endif
+
+#ifndef MIN
+  #define MIN(x,y) ( ( ( x ) < ( y ) ) ? ( x ) : ( y ) )
+#endif
 enum { MIN_SIZE = 256 };
 
 #define str_hdr(x) ( (strHdr *)( (char *)x  - offsetof( strHdr , str ) ) )

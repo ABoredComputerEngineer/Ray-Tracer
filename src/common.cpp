@@ -95,7 +95,7 @@ void arena_free( Arena *arena ){
   array_free( arena->buff );
 }
 
-Arena n_arena( void ){
+Arena new_arena( void ){
   Arena a;
   a.buff = NULL;
   a.buff_len = 0;

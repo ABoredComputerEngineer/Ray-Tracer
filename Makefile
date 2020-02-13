@@ -16,9 +16,9 @@ app: $(FULL_OBJS)
 	$(CC) $(FULL_OBJS) $(DBFLAGS) -L $(LIBS) $(LIBFLAGS) -o $(BIN)/app
 
 .PHONY: run
-run: app
+run: 
 	./bin/app
-	xdg-open ./out
+	feh ./images/out.png
 
 $(BIN)/%.o: $(SRC)/%.cpp
 	$(CC) $< $(DBFLAGS) -I $(INC) -c -o $@
