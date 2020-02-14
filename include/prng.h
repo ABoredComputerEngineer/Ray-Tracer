@@ -104,7 +104,7 @@ void prng_seed( ){
 
 float prng_float(){
   uint64_t x = PRNG_Next( );
-   return (x >> 11) * 0x1.0p-53;
+  return (x >> 11) * 0x1.0p-53;
 }
 
 uint64_t prng_uint64(){

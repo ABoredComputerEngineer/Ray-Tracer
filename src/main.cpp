@@ -12,6 +12,7 @@
 #include "common.h"
 #include "stb_image_write.h"
 #include "primitives.h"
+#include "texture.h"
 #define TOLERANCE 0.000001f
 #define ANTI_ALIASING_ON 
 typedef unsigned int uint;
@@ -177,8 +178,8 @@ struct Camera {
     front = HMM_NormalizeVec3( look_from-look_at );   
     v3 aup = { 0.0f, 1.0f, 0.0 };
 
-    right = HMM_Cross( aup, front );
-    up = HMM_Cross( front, right );
+    right = HMM_Cross( front, aup);
+    up = HMM_Cross( right, front);
 
     lower_left =origin-fd*front-right*fd* half_width-up*fd*half_height;
     lens_radius = aperture/2;
@@ -226,12 +227,10 @@ struct World {
 };
 
 
-
-
 struct Material {
   MaterialType type;
   ScatterFunc scatter;
-  v3 albedo;
+  Texture *albedo;
   union {
     struct {
       float fuzz;
@@ -242,7 +241,7 @@ struct Material {
     };
   };
 
-  Material ( MaterialType t, ScatterFunc func,v3 a, float f ):
+  Material ( MaterialType t, ScatterFunc func,Texture *a, float f ):
     type(t), scatter( func ), albedo( a )
   {
     switch ( t ){
@@ -298,7 +297,8 @@ bool pure_diffuse_scatter(
 {
   v3 dir = rec.n + random_in_unit_sphere();
   out = Ray( rec.p , dir );
-  attenuation = rec.m->albedo;
+  Texture *t = rec.m->albedo;
+  attenuation = t->get_color( t, 0,0, rec.p );
   return true;
 }
 
@@ -312,7 +312,8 @@ bool metallic_scatter(
   v3 dir = HMM_Reflect( HMM_NormalizeVec3(in.direction), rec.n ) +
            rec.m->fuzz * random_in_unit_sphere();
   out = Ray( rec.p, dir );
-  attenuation = rec.m->albedo;
+  Texture *t = rec.m->albedo;
+  attenuation = t->get_color( t, 0,0, rec.p );
   return ( HMM_DotVec3( out.direction, rec.n ) > 0 ) ;
 }
 
@@ -324,7 +325,9 @@ bool refraction_scatter(
 {
   Material *m = rec.m;
   float ri;
-  attenuation = m->albedo;
+  Texture *t = rec.m->albedo;
+  attenuation = t->get_color( t, 0,0, rec.p );
+
   v3 outward_normal;
   float cosine = HMM_DotVec3( HMM_NormalizeVec3( in.direction ), rec.n );
   if ( cosine > 0.0f ){
@@ -358,7 +361,6 @@ bool refraction_scatter(
 
   return true;
 }
-
 
 
 bool hit_sphere(
@@ -455,23 +457,13 @@ struct PrimInfo {
   PrimType type;
   AABB box;
   v3 centroid;
-  union {
-    Sphere *sph;
-    Plane *plane;
-  };
+  void *data;
 
-  PrimInfo ( PrimType t, void *p ){
+  PrimInfo ( PrimType t, void *p, AABB b ){
     type = t;
-    switch ( t ){
-      case SPHERE:
-        sph = (Sphere *)p;
-        box = sphere_aabb( sph );
-        break;
-      default:
-        fprintf( stderr, "Unimplemented stuff!\n" );
-        break;
-    }
+    box = b;
     centroid = 0.5f * (box.l + box.u);
+    data = p;
   }
 };
 
@@ -624,14 +616,18 @@ BVHNode *bvh_recursive_build(
               sizeof(*info),
               mid_point_filter,
               &args );
-#if 0
   if ( mid == start || mid == end ){
-    return bvh_n_build( ):
+    // We were not able to find a good partition
+    BVHNode *n = bvh_create_leaf( arena, ordered_prims.size(),len,total_bound );
+    for ( int i = start; i < end; i++ ){
+      ordered_prims.push_back( info[i] );
+    }
+    return n;
+  } else {
+    BVHNode *l = bvh_recursive_build( arena, info, start, mid, ordered_prims);
+    BVHNode *r = bvh_recursive_build( arena, info, mid, end, ordered_prims);
+    return bvh_create_interior( arena, l, r, dim ); 
   }
-#endif
-  BVHNode *l = bvh_recursive_build( arena, info, start, mid, ordered_prims);
-  BVHNode *r = bvh_recursive_build( arena, info, mid, end, ordered_prims);
-  return bvh_create_interior( arena, l, r, dim ); 
 }
     
 
@@ -643,12 +639,20 @@ BVHNode *create_bvh_tree(
   std::vector<PrimInfo> prim;
   for ( size_t i = 0; i < w.sph_count; i++ ){
     prim.push_back(
-        PrimInfo( PrimInfo::SPHERE, (void *)( w.spheres+i ) )
+        PrimInfo( PrimInfo::SPHERE,
+          (void *)( w.spheres+i ),
+          sphere_aabb( *( w.spheres + i ) )
+        )
     );
   }
-#if 0
-  for ( int i = 0; i < w.sph_count; i++ ){
-    prim.push_back( { Primitive::PLANE, w.planes+ i } );  
+#if 1
+  for ( size_t i = 0; i < w.plane_count; i++ ){
+    prim.push_back(
+        PrimInfo( PrimInfo::PLANE,
+          (void *)( w.planes+i ),
+          (w.planes+i)->box
+          )
+    );
   }
 #endif
 
@@ -663,7 +667,8 @@ bool bvh_leaf_hit(
     HitRecord &rec,
     std::vector<PrimInfo> &ordered_prims)
 {
-
+  bool hit_anything = false;
+  HitRecord temp;
   for ( int i = 0;
         i < node->num_prim;
         i++ )
@@ -671,13 +676,24 @@ bool bvh_leaf_hit(
     PrimInfo &p = ordered_prims[ node->first_offset+ i];
     switch ( p.type ){
       case PrimInfo::SPHERE:
-        return hit_sphere( *( p.sph ), r, tmin, tmax, rec);
+        if( hit_sphere( *( (Sphere*)p.data), r, tmin, tmax, temp) ){
+          hit_anything = true;
+          tmax = temp.t;
+          rec = temp;
+        }
+        break;
+      case PrimInfo::PLANE:
+        if( hit_plane( *( (Plane*)p.data), r, tmin, tmax, temp) ){
+          hit_anything = true;
+          tmax = temp.t;
+          rec = temp;
+        }
         break;
       default:
         break;
     }
   }
-  return false;
+  return hit_anything;
 }
 
 bool bvh_traversal_hit( 
@@ -770,55 +786,153 @@ v3 get_ray_color(
     return ( 1.0 - t ) * start + t * end;
 }
 #endif
+
+void print_v3( const v3 &v ){
+  fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
+}
+
+void print_aabb( const AABB &b ){
+  fprintf( stdout, "Max. bound: " );
+  print_v3( b.u );
+  fprintf( stdout,"\nMin. bound: " );
+  print_v3( b.l );
+}
+
+void print_bvh_info( BVHNode *node ){
+struct BVHNode{
+  AABB box;
+  BVHNode *left, *right; // NULL for leaf primitives
+  int split_axis;
+  int first_offset, num_prim; // only valid for leaf nodes
+  
+};
+  fprintf(stdout,"The bounding box is: \n" );
+  print_aabb( node->box );
+  fprintf( stdout, "\n" );
+  if ( node->num_prim > 0 ){
+    fprintf( stdout,"leaf node with %d primitives, starting at %d.\n",
+            node->num_prim, node->first_offset );
+  } else {
+    fprintf( stdout, "Interior node\n" );
+  }
+}
+
+void bvh_tree_print( BVHNode *node ){
+  print_bvh_info( node );
+  fprintf(stdout,"========================================\n");
+  if(node->left){
+    fprintf(stdout,"Left Node:\n");
+    bvh_tree_print( node->left ); 
+    fprintf(stdout,"-----------------------------------------\n");
+  }
+  if(node->right){
+    fprintf(stdout,"Right Node:\n");
+    bvh_tree_print( node->right );
+    fprintf(stdout,"-----------------------------------------\n");
+  }
+}
+
+void print_sphere_info( Sphere *sph ){
+  fprintf(stdout,"Center: ");
+  print_v3( sph->c );
+  fprintf(stdout,"\nRadius: %f", sph->r );
+}
+void print_plane_info( Plane *p){
+  fprintf(stdout,"Normal: ");
+  print_v3( p->n );
+  fprintf(stdout,"\nPoint: ");
+  print_v3( p->p );
+}
+
+void print_priminfo( PrimInfo *p ){
+  switch ( p->type ){
+    case PrimInfo::SPHERE:
+      fprintf(stdout,"Sphere\n");
+      print_sphere_info( (Sphere *)p->data );
+      break;
+    case PrimInfo::PLANE:
+      fprintf(stdout,"Plane\n" );
+      print_plane_info( (Plane *)p->data );
+      break;
+  }
+}
 int main( ){
   prng_seed();
   int nx = 400;
   int ny = 300;
   int samples = 100;
   
+  Arena perlin_arena = new_arena();
+  Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
+  Texture tex_perlin = create_texture_perlin( &perlin );
+
+  Texture tex_plain_green = create_texture_plain( v3{ 0.8f, 0.8f, 0.0f } );
+  Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
+  Texture tex_plain_pink = create_texture_plain(v3{ 0.8f, 0.3f, 0.3f } );
+  Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
+  Texture tex_plain_black = create_texture_plain(v3{ 0.1f, 0.1f, 0.1f } );
+  Texture tex_plain_pure_white = create_texture_plain(v3{ 1.0f, 1.0f, 1.0f } );
+  Texture tex_checker_black_and_white = create_texture_checker(
+                              v3{0.2,0.3,0.1},
+                              v3{0.9,0.9,0.9});
+  
   Material mat_pure_diffuse_white( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
-                         v3{ 0.5f, 0.5f, 0.5f }, 0.0f );
+                         &tex_plain_white, 0.0f );
 
   Material mat_pure_diffuse_pink( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
-                         v3{ 0.8f, 0.3f, 0.3f }, 0.0f );
+                         &tex_plain_pink, 0.0f );
 
   Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
-                         v3{ 0.1f, 0.2f, 0.5f }, 0.0f );
+                         &tex_plain_blue, 0.0f );
 
   Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
-                         v3{ 0.8f, 0.8f, 0.0f },0.0f );
+                         &tex_plain_green,0.0f );
 
   Material mat_metallic( MATERIAL_METALLIC,
                          metallic_scatter,
-                         v3{ 0.8f, 0.8f, 0.8f },
+                         &tex_plain_black,
                          0.3f);
 
   Material mat_pure_metallic( MATERIAL_METALLIC,
                          metallic_scatter,
-                         v3{ 0.8f, 0.8f, 0.8f },
+                         &tex_plain_white,
                          0.0f);
 
+  Material mat_matte_checker( MATERIAL_PURE_DIFFUSE,
+                              pure_diffuse_scatter,
+                              &tex_checker_black_and_white,
+                              0.0f );
+                              
   Material mat_pure_glass( MATERIAL_GLASS,
                          refraction_scatter,
-                         v3{ 1.0f, 1.0f, 1.0f },
+                         &tex_plain_pure_white,
                          1.5f );
-  
-  v3 lf = { 0,0,1 };
-  v3 lat = { 0,0,-1 };
+
+  Material mat_matte_perlin( MATERIAL_PURE_DIFFUSE,
+                              pure_diffuse_scatter,
+                              &tex_perlin,
+                              0.0f );
+#if 0 
+  v3 lf = { 2,2,1 };
+  v3 lat = { -1.5f,0,-1 };
+#else
+  v3 lf = { 13,2,3 };
+  v3 lat = { 0,0,0 };
+#endif
   float f = HMM_LengthVec3( lat - lf );
   Camera camera(
       lf,
       lat,
-      90, ( float )nx/ny,
-      0.0f,
-      f
+      20, ( float )nx/ny,
+      0.00f,
+      10.0f 
       );
   World world = {};
-  world.sph_cap = 4;
+  world.sph_cap = 10;
   world.spheres = ( Sphere * )malloc(
                   sizeof(Sphere )* world.sph_cap );
 
@@ -830,17 +944,14 @@ int main( ){
 
 #if 1
   world_add_sphere( world,
-      Sphere( {-1.5f, 0.0f, -1.5f}, 0.5f,&mat_pure_diffuse_blue));
+      Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_matte_perlin));
   world_add_sphere( world,
-      Sphere( {0.0f, 0.0f, -1.0f}, 0.5f,&mat_pure_glass));
-  world_add_sphere( world,
-      Sphere( {1.5f, 0.0f, -1.5f}, 0.5f,&mat_pure_diffuse_blue));
- world_add_sphere( world, 
-   Sphere( {0.0f, -100.5f, -1.0f}, 100.0f,&mat_pure_diffuse_green)); 
+      Sphere( {0.0f, 2.0f, 0.0f}, 2.0f,&mat_matte_perlin));
   //world_add_plane( world,
-  //                 Plane( v3{ 0.0f, -0.5f, 0.0f },
+  //                 Plane( v3{ 0.0f, -1.0f, 0.0f },
   //                        v3{ 0.0f, 1.0f, 0.0f },
-  //                        &mat_pure_diffuse_pink)
+  //                        &mat_matte_checker,
+  //                  AABB(v3{-100.0f,-0.6f,-100.0f},v3{100.0f, -0.4f, 100.0f}) )
   //               );
 #else
   world_add_sphere( world,
@@ -855,6 +966,14 @@ int main( ){
   std::vector<PrimInfo> ordered_prims;
   Arena bvh_arena = new_arena();
   BVHNode *tree = create_bvh_tree( &bvh_arena, world, ordered_prims );
+#if 1
+  for ( size_t i = 0; i < ordered_prims.size(); i++ ){
+    fprintf(stdout,"Index %d\n", i );
+    print_priminfo( &ordered_prims[i] );
+    fprintf(stdout,"\n========================================\n");
+  }
+  bvh_tree_print( tree );
+#endif
 //  Ray r = camera.get_ray( 0.5f, 0.5f );
 //  v3 color = get_ray_color( tree,r, 0, ordered_prims );
 #if 1

@@ -34,6 +34,7 @@ struct Sphere {
 
   Sphere ( v3 center, float radius, Material *x ):
     c(center), r(radius), m(x){}
+
 };
 
 struct Plane {
@@ -45,11 +46,14 @@ struct Plane {
 
   Plane ( v3 point, v3 normal ):p(point), n(normal){}
 
-  Plane ( v3 point, v3 normal, Material *x ):
-    p(point), n(normal), m(x){}
+  Plane ( v3 point, v3 normal, Material *x, AABB b ):
+    p(point), n(normal), m(x){ box = b; }
 
-  Plane ( v3 p0, v3 p1, v3 p3 ):
+  Plane ( v3 p0, v3 p1, v3 p3, AABB &b ):
     p(p0),
-    n( HMM_Cross( p1-p0, p3-p0 ) ){}
+    n( HMM_Cross( p1-p0, p3-p0 ) ){
+      box = b;
+    }
 };
+
 #endif

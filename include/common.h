@@ -18,6 +18,8 @@
 #include <stdarg.h>
 
 typedef uint8_t byte;
+typedef uint32_t uint32;
+typedef int32_t int32;
 typedef unsigned int uint;
 typedef uint8_t uint8;
 using ptrdiff = std::ptrdiff_t;
@@ -173,5 +175,38 @@ char *_insert_char( char *str, char c, size_t pos );
 void _delete_char_pos(char *str, size_t pos );
 char *_insert_string( char *x, char *y, int pos );
 void str_test( void );
+
+
+const double _double2fixmagic = 68719476736.0*1.5;
+     //2^36 * 1.5,  (52-_shiftamt=36) uses limited precisicion to floor
+const int32 _shiftamt        = 16;
+                    //16.16 fixed point representation,
+
+#if BigEndian_
+	#define iexp_				0
+	#define iman_				1
+#else
+	#define iexp_				1
+	#define iman_				0
+#endif //BigEndian_
+
+inline int32 Double2Int(double val)
+{
+#if DEFAULT_CONVERSION
+	return val;
+#else
+	val		= val + _double2fixmagic;
+	return ((int32*)&val)[iman_] >> _shiftamt; 
+#endif
+}
+
+inline int32 Float2Int(float val)
+{
+#if DEFAULT_CONVERSION
+	return val;
+#else
+	return Double2Int((double)val);
+#endif
+}
 
 #endif
