@@ -279,11 +279,15 @@ typedef union hmm_vec3
     float Elements[3];
 
 #ifdef __cplusplus
-    inline float &operator[](const int &Index)
+    inline float &operator[](const int &Index) 
     {
         return Elements[Index];
     }
     
+    inline const float &operator[](const int &Index) const 
+    {
+        return Elements[Index];
+    }
 #endif
 } hmm_vec3;
 

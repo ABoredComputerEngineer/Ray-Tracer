@@ -37,6 +37,15 @@ struct Sphere {
 
 };
 
+AABB sphere_aabb( const Sphere &sph ){
+  v3 r = { sph.r, sph.r, sph.r };
+  return AABB( sph.c - r, sph.c + r );
+}
+
+AABB sphere_aabb( Sphere *sph ){
+  v3 r = { sph->r, sph->r, sph->r };
+  return AABB( sph->c - r, sph->c + r );
+}
 struct Plane {
   v3 p;
   v3 n;
@@ -55,5 +64,42 @@ struct Plane {
       box = b;
     }
 };
+
+struct AARect{
+  enum RectType {
+    PLANE_XY = 0,
+    PLANE_YZ = 1,
+    PLANE_ZX = 2
+  };
+  RectType type;
+  float d;
+  v3 n;
+  AABB bounds;
+  int ndim, d0,d1;
+  Material *m;
+  AARect(){}
+  AARect ( RectType t, float dist, AABB b,int flip, Material *mat ):
+    type(t),d(dist), bounds(b), d0( t ), d1( (t+1)%3 ), m( mat )
+  {
+    int sign = ( flip )?-1:1;
+    switch ( t ){
+      case PLANE_XY:
+        n = v3{ 0.0f, 0.0f, sign * 1.0f };
+        ndim = 2;
+        break;
+      case PLANE_YZ:
+        n = v3{ sign*1.0f,0.0f, 0.0f };
+        ndim = 0;
+        break;
+      case PLANE_ZX:
+        n = v3{ 0.0f, sign*1.0f, 0.0f };
+        ndim = 1;
+        break;
+    }
+    bounds.l[ ndim ] = t - 0.01f;
+    bounds.u[ ndim ] = t + 0.01f;
+  }
+};
+
 
 #endif

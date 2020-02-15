@@ -178,8 +178,8 @@ struct Camera {
     front = HMM_NormalizeVec3( look_from-look_at );   
     v3 aup = { 0.0f, 1.0f, 0.0 };
 
-    right = HMM_Cross( front, aup);
-    up = HMM_Cross( right, front);
+    right = HMM_Cross( aup, front);
+    up = HMM_Cross( front, right);
 
     lower_left =origin-fd*front-right*fd* half_width-up*fd*half_height;
     lens_radius = aperture/2;
@@ -206,6 +206,7 @@ enum MaterialType {
   MATERIAL_DIFFUSE,
   MATERIAL_METALLIC,
   MATERIAL_GLASS,
+  MATERIAL_LIGHT,
 };
 
 
@@ -215,7 +216,6 @@ typedef bool (*ScatterFunc)(
     v3 &attenuation,
     Ray &out );
 
-
 struct World {
   Sphere *spheres;
   uint sph_count;
@@ -224,6 +224,10 @@ struct World {
   Plane *planes;
   uint plane_count;
   uint plane_cap;
+
+  AARect *rects;
+  uint rect_count;
+  uint rect_cap;
 };
 
 
@@ -239,8 +243,13 @@ struct Material {
     struct {
       float ri; // w.r.to air
     };
-  };
 
+    struct {
+      v3 light_color;
+    };
+  };
+  
+  Material (){}
   Material ( MaterialType t, ScatterFunc func,Texture *a, float f ):
     type(t), scatter( func ), albedo( a )
   {
@@ -261,6 +270,21 @@ struct Material {
     }
   }
 };
+
+inline bool no_scatter(
+    const HitRecord &h,
+    const Ray &in,
+    v3 &attenuation,
+    Ray &out ){ return false; }
+
+Material create_material_light( const v3 &color ){
+  Material m;
+  m.type = MATERIAL_LIGHT;
+  m.scatter = no_scatter;
+  m.light_color = color;
+  m.albedo = NULL;
+  return m;
+}
 
 
 bool hit_plane(
@@ -398,14 +422,39 @@ bool hit_sphere(
   return false;
 }
 
-AABB sphere_aabb( const Sphere &sph ){
-  v3 r = { sph.r, sph.r, sph.r };
-  return AABB( sph.c - r, sph.c + r );
-}
+bool hit_AARect(
+    AARect &rect,
+    const Ray &ray,
+    float tmin,
+    float tmax,
+    HitRecord &record )
+{
 
-AABB sphere_aabb( Sphere *sph ){
-  v3 r = { sph->r, sph->r, sph->r };
-  return AABB( sph->c - r, sph->c + r );
+  //if ( fabs( ray.direction[ rect.ndim ] ) < TOLERANCE ) return false;
+  float check = HMM_DotVec3( ray.direction, rect.n );
+  if ( check > 0.0f ) return false;
+  float t = ( rect.d - ray.start[rect.ndim] )/ray.direction[rect.ndim];
+  if ( t < tmin || t > tmax ) return false; 
+  float a = ray.start[ rect.d0 ] + t * ray.direction[ rect.d0 ];
+  float b = ray.start[ rect.d1 ] + t * ray.direction[ rect.d1 ];
+
+ 
+  if ( a < rect.bounds.l[ rect.d0 ] || a > rect.bounds.u[ rect.d0 ] ){
+    return false;
+  }
+  if ( b < rect.bounds.l[ rect.d1 ] || b > rect.bounds.u[ rect.d1 ] ){
+    return false;
+  }
+
+  record.p[rect.d0] = a;
+  record.p[rect.d1] = b;
+  record.p[rect.ndim] = rect.d;
+  
+  record.n = rect.n;
+  record.m = rect.m; 
+  record.t = t;
+  return true;
+
 }
 
 
@@ -447,11 +496,16 @@ void world_add_plane( World &w, Plane p ){
   assert( w.plane_count + 1 <= w.plane_cap );
   w.planes[ w.plane_count++ ] = p;
 }
+void world_add_rect( World &w, AARect r ){
+  assert( w.rect_count+ 1 <= w.rect_cap );
+  w.rects[ w.rect_count++ ] = r;
+}
 
 struct PrimInfo {
   typedef enum PrimType {
     SPHERE,
-    PLANE
+    PLANE,
+    RECTANGLE
   } PrimType;
 
   PrimType type;
@@ -655,6 +709,14 @@ BVHNode *create_bvh_tree(
     );
   }
 #endif
+  for ( size_t i = 0; i < w.rect_count; i++ ){
+    prim.push_back(
+        PrimInfo( PrimInfo::RECTANGLE,
+          (void *)( w.rects+i ),
+          (w.rects+i)->bounds
+          )
+    );
+  }
 
   return bvh_recursive_build( arena, &prim[0], 0, prim.size(), ordered_prims );
 }
@@ -684,6 +746,13 @@ bool bvh_leaf_hit(
         break;
       case PrimInfo::PLANE:
         if( hit_plane( *( (Plane*)p.data), r, tmin, tmax, temp) ){
+          hit_anything = true;
+          tmax = temp.t;
+          rec = temp;
+        }
+        break;
+      case PrimInfo::RECTANGLE:
+        if( hit_AARect( *( (AARect*)p.data), r, tmin, tmax, temp) ){
           hit_anything = true;
           tmax = temp.t;
           rec = temp;
@@ -732,33 +801,6 @@ bool bvh_traversal_hit(
   } 
   return false;
 }
-#if 0
-v3 get_ray_color( World &w,  const Ray &ray, int depth ){
-  v3 direction = HMM_NormalizeVec3( ray.direction );
-  
-  HitRecord rec;
-  v3 attn;
-  Ray out;
-  if ( world_check_hit(w,ray,rec) ){
-//    return 0.5f * ( rec.n + v3{1.0f,1.0f,1.0f} );
-    if ( depth < 50 &&  rec.m->scatter( rec, ray, attn, out ) ){
-      return attn * get_ray_color( w, out, depth+1 );
-    } else {
-      return { 0,0,0 };
-    }
-  }
-#if 1
-    float t = 0.5f * ( direction.Y + 1.0f );
-    
-    v3 start= { 1.0f, 1.0f, 1.0f };
-    v3 end = { 0.5f, 0.7f, 1.0f };
-    
-    return ( 1.0 - t ) * start + t * end;
-#else
-    return { 0.1f, 0.45f, 0.32f };
-#endif
-}
-#else
 v3 get_ray_color(
     BVHNode *root,
     const Ray &ray,
@@ -771,24 +813,28 @@ v3 get_ray_color(
   v3 attn;
   Ray out;
 
-  if ( bvh_traversal_hit( root, ray,0.0001f,FLT_MAX, rec,ordered_prims ) ){
-    if ( depth < 50 &&  rec.m->scatter( rec, ray, attn, out ) ){
-      return attn * get_ray_color( root, out, depth+1,ordered_prims );
-    } else {
-      return { 0,0,0 };
+  if ( bvh_traversal_hit( root, ray,0.001f,FLT_MAX, rec,ordered_prims ) ){
+    v3 emitted = { 0.0f, 0.0f, 0.0f };
+    if ( rec.m->type == MATERIAL_LIGHT ){
+      emitted = rec.m->light_color;
     }
+    v3 scatter = { 0.0f, 0.0f, 0.0f };
+
+    if ( depth < 50 &&  rec.m->scatter( rec, ray, attn, out ) ){
+      scatter = attn * get_ray_color( root, out, depth+1,ordered_prims );
+    }
+    return emitted + scatter;
   }
     float t = 0.5f * ( direction.Y + 1.0f );
     
     v3 start= { 1.0f, 1.0f, 1.0f };
     v3 end = { 0.5f, 0.7f, 1.0f };
-#if 1    
+#if 0    
     return ( 1.0 - t ) * start + t * end;
 #else
-    return v3{1.0f,1.0f,1.0f};
+    return v3{0.02f,0.02f,0.02f};
 #endif
 }
-#endif
 
 void print_v3( const v3 &v ){
   fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
@@ -846,6 +892,12 @@ void print_plane_info( Plane *p){
   fprintf(stdout,"\nPoint: ");
   print_v3( p->p );
 }
+void print_rect_info( AARect *r ){
+  fprintf(stdout,"Normal: " );
+  print_v3( r->n );
+  fprintf(stdout,"\nndim = %d, d0 = %d, d1 = %d\n",
+         r->ndim, r->d0, r->d1 );
+}
 
 void print_priminfo( PrimInfo *p ){
   switch ( p->type ){
@@ -857,6 +909,10 @@ void print_priminfo( PrimInfo *p ){
       fprintf(stdout,"Plane\n" );
       print_plane_info( (Plane *)p->data );
       break;
+    case PrimInfo::RECTANGLE:
+      fprintf(stdout,"Rectangle\n" );
+      print_rect_info( (AARect *)p->data );
+      break;
   }
 }
 int main( ){
@@ -867,11 +923,11 @@ int main( ){
   
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
-  Texture tex_perlin = create_texture_perlin( &perlin );
+//  Texture tex_perlin = create_texture_perlin( &perlin );
   Texture tex_marble = create_texture_marble( &perlin );
   Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
-
+  Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
 #if 0 
   Texture tex_plain_green = create_texture_plain( v3{ 0.8f, 0.8f, 0.0f } );
   Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
@@ -917,10 +973,15 @@ int main( ){
                          metallic_scatter,
                          &tex_plain_white,
                          0.0f);
-  Material mat_matte_perlin( MATERIAL_PURE_DIFFUSE,
-                              pure_diffuse_scatter,
-                              &tex_perlin,
-                              0.0f );
+//  Material mat_matte_perlin( MATERIAL_PURE_DIFFUSE,
+//                              pure_diffuse_scatter,
+//                              &tex_perlin,
+//                              0.0f );
+ Material mat_fuzzy( MATERIAL_METALLIC,
+                         metallic_scatter,
+                         &tex_plain_blue,
+                         0.042f );
+                        
   Material mat_matte_marble( MATERIAL_PURE_DIFFUSE,
                               pure_diffuse_scatter,
                               &tex_marble,
@@ -928,12 +989,29 @@ int main( ){
   Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_red,0.0f );
+  Material mat_light = create_material_light( v3{8,8,8} );
+  AARect rect1(
+      AARect::PLANE_XY,
+      -2.0f,
+      AABB( v3{ -2.0f, 0.1f ,0.0f }, v3{ 4.0f ,2.0f, 0.0f  } ),
+      0,
+      &mat_light
+      ); 
+#if 1
+  AARect rect2(
+      AARect::PLANE_YZ,
+      3.0f,
+      AABB( v3{ 0.0f, 0.0f ,-1.0f }, v3{ 2.0f ,2.0f, 1.0f } ),
+      1,
+      &mat_light
+      ); 
+#endif
 #if 0 
   v3 lf = { 2,2,1 };
   v3 lat = { -1.5f,0,-1 };
 #else
-  v3 lf = { 13,2,3 };
-  v3 lat = { 0,0,0 };
+  v3 lf = { -8,1,6 };
+  v3 lat = { 0,0,-1 };
 #endif
   float f = HMM_LengthVec3( lat - lf );
   Camera camera(
@@ -941,7 +1019,7 @@ int main( ){
       lat,
       20, ( float )nx/ny,
       0.00f,
-      10.0f 
+      f
       );
   World world = {};
   world.sph_cap = 10;
@@ -952,15 +1030,22 @@ int main( ){
   world.planes = ( Plane * )malloc(
                   sizeof(Plane)* world.plane_cap );
 
+  world.rect_cap= 4;
+  world.rects = ( AARect* )malloc(
+                  sizeof(AARect)* world.rect_cap);
   assert( world.spheres );
 
 #if 1
   world_add_sphere( world,
       Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_red));
+  //world_add_sphere( world,
+  //    Sphere( {0.0f, 2.0f, 0.0f}, 2.0f,&mat_pure_diffuse_red));
   world_add_sphere( world,
-      Sphere( {0.0f, 2.0f, 0.0f}, 2.0f,&mat_pure_diffuse_red));
-  world_add_sphere( world,
-      Sphere( {3.0f,0.5f,0.0f}, 0.5f, &mat_pure_metallic ) );
+      Sphere( {1.0f,0.5f,-1.0f}, 0.5f, &mat_matte_marble) );
+  //world_add_sphere( world,
+  //    Sphere( {1.0f,1.9f,-1.0f}, 0.5f, &mat_light) );
+   world_add_rect( world, rect1 );
+  //world_add_rect( world, rect2 );
   //world_add_plane( world,
   //                 Plane( v3{ 0.0f, -1.0f, 0.0f },
   //                        v3{ 0.0f, 1.0f, 0.0f },
