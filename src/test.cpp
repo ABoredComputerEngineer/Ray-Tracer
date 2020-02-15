@@ -105,13 +105,10 @@ int less_than( void *x ){
 }
 
 int main( void ){
-  v3 near = { -1, -1, -1 };
-  v3 far = { -5, -5 , -5 };
-  AABB box( far, near);
-  Ray r( v3{-2,-2,-2},v3{ 1, 1, 1 } );
-
-  int x = AABB_hit( box, r, 0.0f, FLT_MAX );
-  printf( "%d\n", x );
+  v3 a = {1.0f,1.0f,1.0f};
+  v3 b = { 3.0f, 4.0f, 2.0f };
+  v3 c = a * b;
+  printf("%f, %f, %f \n", c.X,c.Y,c.Z );
   return 0;
 
 }

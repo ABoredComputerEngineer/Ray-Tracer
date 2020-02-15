@@ -782,8 +782,11 @@ v3 get_ray_color(
     
     v3 start= { 1.0f, 1.0f, 1.0f };
     v3 end = { 0.5f, 0.7f, 1.0f };
-    
+#if 1    
     return ( 1.0 - t ) * start + t * end;
+#else
+    return v3{1.0f,1.0f,1.0f};
+#endif
 }
 #endif
 
@@ -865,17 +868,19 @@ int main( ){
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
   Texture tex_perlin = create_texture_perlin( &perlin );
+  Texture tex_marble = create_texture_marble( &perlin );
+  Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
+  Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
 
+#if 0 
   Texture tex_plain_green = create_texture_plain( v3{ 0.8f, 0.8f, 0.0f } );
   Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
   Texture tex_plain_pink = create_texture_plain(v3{ 0.8f, 0.3f, 0.3f } );
-  Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_plain_black = create_texture_plain(v3{ 0.1f, 0.1f, 0.1f } );
   Texture tex_plain_pure_white = create_texture_plain(v3{ 1.0f, 1.0f, 1.0f } );
   Texture tex_checker_black_and_white = create_texture_checker(
                               v3{0.2,0.3,0.1},
                               v3{0.9,0.9,0.9});
-  
   Material mat_pure_diffuse_white( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_white, 0.0f );
@@ -897,10 +902,6 @@ int main( ){
                          &tex_plain_black,
                          0.3f);
 
-  Material mat_pure_metallic( MATERIAL_METALLIC,
-                         metallic_scatter,
-                         &tex_plain_white,
-                         0.0f);
 
   Material mat_matte_checker( MATERIAL_PURE_DIFFUSE,
                               pure_diffuse_scatter,
@@ -911,11 +912,22 @@ int main( ){
                          refraction_scatter,
                          &tex_plain_pure_white,
                          1.5f );
-
+#endif
+  Material mat_pure_metallic( MATERIAL_METALLIC,
+                         metallic_scatter,
+                         &tex_plain_white,
+                         0.0f);
   Material mat_matte_perlin( MATERIAL_PURE_DIFFUSE,
                               pure_diffuse_scatter,
                               &tex_perlin,
                               0.0f );
+  Material mat_matte_marble( MATERIAL_PURE_DIFFUSE,
+                              pure_diffuse_scatter,
+                              &tex_marble,
+                              0.0f );
+  Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
+                         pure_diffuse_scatter,
+                         &tex_plain_red,0.0f );
 #if 0 
   v3 lf = { 2,2,1 };
   v3 lat = { -1.5f,0,-1 };
@@ -944,9 +956,11 @@ int main( ){
 
 #if 1
   world_add_sphere( world,
-      Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_matte_perlin));
+      Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_red));
   world_add_sphere( world,
-      Sphere( {0.0f, 2.0f, 0.0f}, 2.0f,&mat_matte_perlin));
+      Sphere( {0.0f, 2.0f, 0.0f}, 2.0f,&mat_pure_diffuse_red));
+  world_add_sphere( world,
+      Sphere( {3.0f,0.5f,0.0f}, 0.5f, &mat_pure_metallic ) );
   //world_add_plane( world,
   //                 Plane( v3{ 0.0f, -1.0f, 0.0f },
   //                        v3{ 0.0f, 1.0f, 0.0f },
@@ -958,8 +972,6 @@ int main( ){
       Sphere( {0,0,-1.0f}, 0.5f, &mat_pure_diffuse_green ) );
   world_add_sphere( world,
       Sphere( {0,-100.5f,-1.0f}, 100.0f, &mat_pure_diffuse_pink ) );
-  world_add_sphere( world,
-      Sphere( {1.0f,0,-1.0f}, 0.5f, &mat_pure_metallic ) );
   world_add_sphere( world,
       Sphere( {-1.0f,0,-1.0f}, 0.5f, &mat_pure_glass ) );
 #endif
