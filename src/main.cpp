@@ -1,7 +1,7 @@
 #define HANDMADE_MATH_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-//#define OS_LINUX_CPP
-#define OS_WINDOWS_CPP
+#define OS_LINUX_CPP
+//#define OS_WINDOWS_CPP
 #include <stdio.h>
 #include <inttypes.h>
 #include <assert.h>
@@ -201,6 +201,8 @@ struct HitRecord{
   v3 n;
   Material *m;
 };
+
+
 
 enum MaterialType {
   MATERIAL_PURE_DIFFUSE,
@@ -432,8 +434,8 @@ bool hit_AARect(
 {
 
   //if ( fabs( ray.direction[ rect.ndim ] ) < TOLERANCE ) return false;
-  //float check = HMM_DotVec3( ray.direction, rect.n );
-  //if ( check > 0.0f ) return false;
+  float check = HMM_DotVec3( ray.direction, rect.n );
+  if ( check > 0.0f ) return false;
   float t = ( rect.d - ray.start[rect.ndim] )/ray.direction[rect.ndim];
   if ( t < tmin || t > tmax ) return false; 
   float a = ray.start[ rect.d0 ] + t * ray.direction[ rect.d0 ];
@@ -817,23 +819,24 @@ v3 get_ray_color(
   if ( bvh_traversal_hit( root, ray,0.001f,FLT_MAX, rec,ordered_prims ) ){
     v3 emitted = { 0.0f, 0.0f, 0.0f };
     if ( rec.m->type == MATERIAL_LIGHT ){
-      emitted = rec.m->light_color;
+      return rec.m->light_color;
     }
-    v3 scatter = { 0.0f, 0.0f, 0.0f };
-
-    if ( depth < 50 &&  rec.m->scatter( rec, ray, attn, out ) ){
-      scatter = attn * get_ray_color( root, out, depth+1,ordered_prims );
+    if ( rec.m->scatter( rec, ray, attn, out ) && ( depth < 30 ) ){
+        return attn * get_ray_color( root, out, depth+1,ordered_prims );
+    } else if ( depth >= 10  ){
+      Texture *t = rec.m->albedo;
+      emitted = t->get_color( t, 0,0, rec.p );
     }
-    return emitted + scatter;
+    return emitted;
   }
+#if 0    
     float t = 0.5f * ( direction.Y + 1.0f );
     
     v3 start= { 1.0f, 1.0f, 1.0f };
     v3 end = { 0.5f, 0.7f, 1.0f };
-#if 1    
     return ( 1.0 - t ) * start + t * end;
 #else
-    return v3{0.02f,0.02f,0.02f};
+    return v3{0.0f,0.0f,0.0f};
 #endif
 }
 
@@ -918,17 +921,19 @@ void print_priminfo( PrimInfo *p ){
 }
 
 
+
 int main( ){
   prng_seed();
-  int nx = 200;
-  int ny = 150;
-  uint64 samples = 1000 * 10;
+  int nx = 400;
+  int ny = 300;
+  uint64 samples = 100;
   float total_pixels = nx * ny; 
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
 //  Texture tex_perlin = create_texture_perlin( &perlin );
   Texture tex_marble = create_texture_marble( &perlin );
   Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
+  Texture tex_weak_white= create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
   Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
   Texture tex_plain_green = create_texture_plain(v3{ 0.12f, 0.45f, 0.15f } );
@@ -993,15 +998,18 @@ int main( ){
   Material mat_shiny_marble( MATERIAL_METALLIC,
                               metallic_scatter,
                               &tex_marble,
-                              0.122f );
+                              0.422f );
   Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_red,0.0f );
-  Material mat_light = create_material_light( v3{15,15,15} );
+  Material mat_light = create_material_light( v3{12,12,12} );
 
   Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_blue, 0.0f );
+  Material mat_weak_white( MATERIAL_PURE_DIFFUSE,
+                         pure_diffuse_scatter,
+                         &tex_weak_white, 0.0f );
   Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_green, 0.0f );
@@ -1055,60 +1063,60 @@ int main( ){
   //               );
 #else
    float xleft = -1.5f, xright = 1.5f;
-   float ytop = 2.05f, ybot = 0.0f;
+   float ytop = 2.051f, ybot = 0.0f;
    float zfront = 3.5f, zback = 0.0f;
    float zmid = ( zfront + zback )/2;
    float light_dim = ( xright - xleft )/8;
-  AARect back(
-      AARect::PLANE_XY,
-      zback,
-      AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
-      0,
-      &mat_pure_diffuse_white
-      ); 
-  AARect front(
-      AARect::PLANE_XY,
-      zfront,
-      AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
-      1,
-      &mat_pure_diffuse_blue
-      ); 
-  AARect top(
-      AARect::PLANE_ZX,
-      ytop + 0.01f,
-      AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,2.05f, zfront  } ),
-      1,
-      &mat_pure_diffuse_white
-      ); 
-  AARect bottom(
-      AARect::PLANE_ZX,
-      ybot,
-      AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,0,zfront  } ),
-      0,
-      &mat_pure_diffuse_white
-      ); 
-  AARect left(
-      AARect::PLANE_YZ,
-      xleft,
-      AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
-      0,
-      &mat_pure_diffuse_green
-      ); 
-  AARect right(
-      AARect::PLANE_YZ,
-      xright,
-      AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
-      1,
-      &mat_pure_diffuse_red
-      ); 
-  AARect light(
-      AARect::PLANE_ZX,
-      ytop,
-      AABB( v3{ -light_dim,0.0f,zmid-light_dim },
-            v3{ light_dim ,0.0f,zmid+light_dim  } ),
-      1,
-      &mat_light
-      ); 
+   AARect back(
+       AARect::PLANE_XY,
+       zback,
+       AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
+       0,
+       &mat_pure_diffuse_white
+       ); 
+   AARect front(
+       AARect::PLANE_XY,
+       zfront,
+       AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
+       1,
+       &mat_pure_diffuse_blue
+       ); 
+   AARect top(
+       AARect::PLANE_ZX,
+       ytop,
+       AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,0.00f, zfront  } ),
+       1,
+       &mat_weak_white
+       ); 
+   AARect bottom(
+       AARect::PLANE_ZX,
+       ybot,
+       AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,0,zfront  } ),
+       0,
+       &mat_weak_white
+       );
+   AARect left(
+       AARect::PLANE_YZ,
+       xleft,
+       AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
+       0,
+       &mat_pure_diffuse_green
+       ); 
+   AARect right(
+       AARect::PLANE_YZ,
+       xright,
+       AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
+       1,
+       &mat_pure_diffuse_red
+       ); 
+   AARect light(
+       AARect::PLANE_ZX,
+       ytop-0.01f,
+       AABB( v3{ -light_dim,0.0f,zmid-light_dim },
+             v3{ light_dim ,0.0f,zmid+light_dim  } ),
+       1,
+       &mat_light
+       ); 
   //world_add_sphere( world,
   //    Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_white));
   world_add_sphere( world,
@@ -1158,9 +1166,9 @@ int main( ){
                 HMM_SquareRootF( color[1] ),
                 HMM_SquareRootF( color[2] ) };
 
-      int ir = (int)(255.99 * color[0] );
-      int ig = (int)(255.99 * color[1] );
-      int ib = (int)(255.99 * color[2] );
+      int ir = (int)(255.99 * CLAMP( color[0], 0.0f, 1.0f ) );
+      int ig = (int)(255.99 * CLAMP( color[1], 0.0f, 1.0f ) );
+      int ib = (int)(255.99 * CLAMP( color[2], 0.0f, 1.0f ) );
       
       *start++ = ir & 0xff;
       *start++ = ig & 0xff;
@@ -1174,7 +1182,7 @@ int main( ){
     }
   }
   
-  stbi_write_png( "./out.png", nx, ny, 3, buff,3 * nx );
+  stbi_write_png( "./images/out.png", nx, ny, 3, buff,3 * nx );
 #endif
   return 0;
 }

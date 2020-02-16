@@ -25,6 +25,8 @@ run: app
 	feh ./images/out.png
 disp:
 	feh ./images/out.png
+test: ./src/test.cpp
+	$(CC) $< $(DBFLAGS) -I $(INC) -o $@
 
 $(BIN)/%.o: $(SRC)/%.cpp
 	$(CC) $< $(OFLAGS) -I $(INC) -c -o $@

@@ -39,6 +39,7 @@ void internal_array_free(void* array);
 uint32_t array_length(void* array);
 uint32_t array_capacity(void* array);
 
+#define CLAMP( x, min, max ) ( ( ( x ) < ( min ) )?(min):( (( x )>( max ))?( max ):( x ) ) )
 
 template <typename Type>
 Type& array_get(Type* array, uint32_t index);
