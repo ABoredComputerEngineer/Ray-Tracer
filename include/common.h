@@ -4,25 +4,31 @@
 #include <cstdio>
 #include <inttypes.h>
 #include <cstring>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <cassert>
-#include <x86intrin.h>
-#include <math.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <stddef.h>
 #include <stdarg.h>
 
+#ifdef OS_LINUX_CPP
+#include <x86intrin.h>
+#include <math.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#endif
+
+#ifdef OS_WINDOWS_CPP
+#include <windows.h>
+#endif
 typedef uint8_t byte;
 typedef uint32_t uint32;
 typedef int32_t int32;
 typedef unsigned int uint;
 typedef uint8_t uint8;
-using ptrdiff = std::ptrdiff_t;
+typedef ptrdiff_t ptrdiff;
 
 struct BufferContext {
     uint32_t length = 0;

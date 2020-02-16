@@ -1,6 +1,7 @@
 #define HANDMADE_MATH_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#define OS_LINUX_CPP
+//#define OS_LINUX_CPP
+#define OS_WINDOWS_CPP
 #include <stdio.h>
 #include <inttypes.h>
 #include <assert.h>
@@ -829,7 +830,7 @@ v3 get_ray_color(
     
     v3 start= { 1.0f, 1.0f, 1.0f };
     v3 end = { 0.5f, 0.7f, 1.0f };
-#if 0    
+#if 1    
     return ( 1.0 - t ) * start + t * end;
 #else
     return v3{0.02f,0.02f,0.02f};
@@ -919,9 +920,9 @@ void print_priminfo( PrimInfo *p ){
 
 int main( ){
   prng_seed();
-  int nx = 400;
-  int ny = 300;
-  uint64 samples = 1000 * 10; 
+  int nx = 200;
+  int ny = 150;
+  uint64 samples = 1000 * 10;
   float total_pixels = nx * ny; 
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
@@ -1142,7 +1143,7 @@ int main( ){
   uint8 *start = buff;
   uint64 pixel_completed = 0;
   uint pixel_five_percent = (uint)( 0.05 * total_pixels ); 
-  int count;
+  int count = 0;
   for ( int j = ny - 1; j >= 0; j-- ){
     for ( int i = 0; i < nx; i++ ){
       v3 color = { 0.0f, 0.0f, 0.0f };
@@ -1173,7 +1174,7 @@ int main( ){
     }
   }
   
-  stbi_write_png( "./images/out.png", nx, ny, 3, buff,3 * nx );
+  stbi_write_png( "./out.png", nx, ny, 3, buff,3 * nx );
 #endif
   return 0;
 }

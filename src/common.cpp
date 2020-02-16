@@ -102,6 +102,8 @@ Arena new_arena( void ){
   a.buff_capacity = 0;
   return a;
 }
+
+#ifdef OS_LINUX_CPP
 int read_text_file_to_buffer( const char *path, char **buffer ){
   int fd = open( path, O_RDONLY );
   if ( fd == -1 ){
@@ -140,6 +142,7 @@ cleanup1:
   close( fd );
   return -1;
 }
+#endif
 
 #if 0
 static void *xmalloc( size_t size ){
