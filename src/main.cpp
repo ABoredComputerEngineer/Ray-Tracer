@@ -431,8 +431,8 @@ bool hit_AARect(
 {
 
   //if ( fabs( ray.direction[ rect.ndim ] ) < TOLERANCE ) return false;
-  float check = HMM_DotVec3( ray.direction, rect.n );
-  if ( check > 0.0f ) return false;
+  //float check = HMM_DotVec3( ray.direction, rect.n );
+  //if ( check > 0.0f ) return false;
   float t = ( rect.d - ray.start[rect.ndim] )/ray.direction[rect.ndim];
   if ( t < tmin || t > tmax ) return false; 
   float a = ray.start[ rect.d0 ] + t * ray.direction[ rect.d0 ];
@@ -915,12 +915,14 @@ void print_priminfo( PrimInfo *p ){
       break;
   }
 }
+
+
 int main( ){
   prng_seed();
   int nx = 400;
   int ny = 300;
-  int samples = 100;
-  
+  uint64 samples = 1000 * 10; 
+  float total_pixels = nx * ny; 
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
 //  Texture tex_perlin = create_texture_perlin( &perlin );
@@ -928,6 +930,7 @@ int main( ){
   Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
   Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
+  Texture tex_plain_green = create_texture_plain(v3{ 0.12f, 0.45f, 0.15f } );
 #if 0 
   Texture tex_plain_green = create_texture_plain( v3{ 0.8f, 0.8f, 0.0f } );
   Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
@@ -945,9 +948,6 @@ int main( ){
                          pure_diffuse_scatter,
                          &tex_plain_pink, 0.0f );
 
-  Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_blue, 0.0f );
 
   Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
@@ -969,6 +969,9 @@ int main( ){
                          &tex_plain_pure_white,
                          1.5f );
 #endif
+  Material mat_pure_diffuse_white( MATERIAL_PURE_DIFFUSE,
+                         pure_diffuse_scatter,
+                         &tex_plain_white, 0.0f );
   Material mat_pure_metallic( MATERIAL_METALLIC,
                          metallic_scatter,
                          &tex_plain_white,
@@ -986,40 +989,30 @@ int main( ){
                               pure_diffuse_scatter,
                               &tex_marble,
                               0.0f );
+  Material mat_shiny_marble( MATERIAL_METALLIC,
+                              metallic_scatter,
+                              &tex_marble,
+                              0.122f );
   Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_red,0.0f );
-  Material mat_light = create_material_light( v3{8,8,8} );
-  AARect rect1(
-      AARect::PLANE_XY,
-      -2.0f,
-      AABB( v3{ -2.0f, 0.1f ,0.0f }, v3{ 4.0f ,2.0f, 0.0f  } ),
-      0,
-      &mat_light
-      ); 
-#if 1
-  AARect rect2(
-      AARect::PLANE_YZ,
-      3.0f,
-      AABB( v3{ 0.0f, 0.0f ,-1.0f }, v3{ 2.0f ,2.0f, 1.0f } ),
-      1,
-      &mat_light
-      ); 
-#endif
-#if 0 
-  v3 lf = { 2,2,1 };
-  v3 lat = { -1.5f,0,-1 };
-#else
-  v3 lf = { -8,1,6 };
-  v3 lat = { 0,0,-1 };
-#endif
+  Material mat_light = create_material_light( v3{15,15,15} );
+
+  Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
+                         pure_diffuse_scatter,
+                         &tex_plain_blue, 0.0f );
+  Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
+                         pure_diffuse_scatter,
+                         &tex_plain_green, 0.0f );
+  v3 lf = { 0,1,5.5 };
+  v3 lat = { 0,1,-1 };
   float f = HMM_LengthVec3( lat - lf );
   Camera camera(
       lf,
       lat,
-      20, ( float )nx/ny,
+      40, ( float )nx/ny,
       0.00f,
-      f
+     f 
       );
   World world = {};
   world.sph_cap = 10;
@@ -1030,12 +1023,19 @@ int main( ){
   world.planes = ( Plane * )malloc(
                   sizeof(Plane)* world.plane_cap );
 
-  world.rect_cap= 4;
+  world.rect_cap= 20;
   world.rects = ( AARect* )malloc(
                   sizeof(AARect)* world.rect_cap);
   assert( world.spheres );
 
-#if 1
+#if 0
+  AARect rect1(
+      AARect::PLANE_XY,
+      -2.0f,
+      AABB( v3{ -2.0f, 0.1f ,0.0f }, v3{ 4.0f ,2.0f, 0.0f  } ),
+      0,
+      &mat_light
+      ); 
   world_add_sphere( world,
       Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_red));
   //world_add_sphere( world,
@@ -1053,12 +1053,76 @@ int main( ){
   //                  AABB(v3{-100.0f,-0.6f,-100.0f},v3{100.0f, -0.4f, 100.0f}) )
   //               );
 #else
+   float xleft = -1.5f, xright = 1.5f;
+   float ytop = 2.05f, ybot = 0.0f;
+   float zfront = 3.5f, zback = 0.0f;
+   float zmid = ( zfront + zback )/2;
+   float light_dim = ( xright - xleft )/8;
+  AARect back(
+      AARect::PLANE_XY,
+      zback,
+      AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
+      0,
+      &mat_pure_diffuse_white
+      ); 
+  AARect front(
+      AARect::PLANE_XY,
+      zfront,
+      AABB( v3{ xleft, ybot ,0.0f }, v3{ xright ,ytop, 0.0f  } ),
+      1,
+      &mat_pure_diffuse_blue
+      ); 
+  AARect top(
+      AARect::PLANE_ZX,
+      ytop + 0.01f,
+      AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,2.05f, zfront  } ),
+      1,
+      &mat_pure_diffuse_white
+      ); 
+  AARect bottom(
+      AARect::PLANE_ZX,
+      ybot,
+      AABB( v3{ xleft, 0.0f ,zback }, v3{ xright ,0,zfront  } ),
+      0,
+      &mat_pure_diffuse_white
+      ); 
+  AARect left(
+      AARect::PLANE_YZ,
+      xleft,
+      AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
+      0,
+      &mat_pure_diffuse_green
+      ); 
+  AARect right(
+      AARect::PLANE_YZ,
+      xright,
+      AABB( v3{ 0.0f, ybot ,zback }, v3{ 0.0f ,ytop, zfront  } ),
+      1,
+      &mat_pure_diffuse_red
+      ); 
+  AARect light(
+      AARect::PLANE_ZX,
+      ytop,
+      AABB( v3{ -light_dim,0.0f,zmid-light_dim },
+            v3{ light_dim ,0.0f,zmid+light_dim  } ),
+      1,
+      &mat_light
+      ); 
+  //world_add_sphere( world,
+  //    Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_white));
   world_add_sphere( world,
-      Sphere( {0,0,-1.0f}, 0.5f, &mat_pure_diffuse_green ) );
+      Sphere( {-1.0f,0.5f,2.0f}, 0.5f, &mat_shiny_marble) );
   world_add_sphere( world,
-      Sphere( {0,-100.5f,-1.0f}, 100.0f, &mat_pure_diffuse_pink ) );
+      Sphere( {0.0f,0.5f,1.0f}, 0.5f, &mat_pure_metallic) );
   world_add_sphere( world,
-      Sphere( {-1.0f,0,-1.0f}, 0.5f, &mat_pure_glass ) );
+      Sphere( {1.0f,0.5f,1.5f}, 0.5f, &mat_matte_marble) );
+   world_add_rect( world, left);
+   world_add_rect( world, right);
+   world_add_rect( world, light);
+   world_add_rect( world, back);
+//   world_add_rect( world, front);
+   world_add_rect( world, top );
+   world_add_rect( world, bottom);
 #endif
   std::vector<PrimInfo> ordered_prims;
   Arena bvh_arena = new_arena();
@@ -1076,10 +1140,13 @@ int main( ){
 #if 1
   uint8 *buff = ( uint8 *)malloc( 3 * nx * ny * sizeof( uint8 ) );
   uint8 *start = buff;
+  uint64 pixel_completed = 0;
+  uint pixel_five_percent = (uint)( 0.05 * total_pixels ); 
+  int count;
   for ( int j = ny - 1; j >= 0; j-- ){
     for ( int i = 0; i < nx; i++ ){
       v3 color = { 0.0f, 0.0f, 0.0f };
-      for ( int k = 0; k < samples ; k++ ){
+      for ( uint64 k = 0; k < samples ; k++ ){
         float s1 = ( i + prng_float() )/(float)nx;
         float s2 = ( j + prng_float() )/(float)ny;
         Ray r = camera.get_ray( s1, s2 );
@@ -1097,6 +1164,12 @@ int main( ){
       *start++ = ir & 0xff;
       *start++ = ig & 0xff;
       *start++ = ib & 0xff;
+      pixel_completed++;
+      if ( pixel_completed >= pixel_five_percent ){
+        count++;
+        pixel_completed = 0;
+        printf("Ray tracing %d percent completed\n", count * 5 );
+      }
     }
   }
   

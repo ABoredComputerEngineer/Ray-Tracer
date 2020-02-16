@@ -96,8 +96,8 @@ struct AARect{
         ndim = 1;
         break;
     }
-    bounds.l[ ndim ] = t - 0.01f;
-    bounds.u[ ndim ] = t + 0.01f;
+    bounds.l[ ndim ] = d - 0.01f;
+    bounds.u[ ndim ] = d + 0.01f;
   }
 };
 

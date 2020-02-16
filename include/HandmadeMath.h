@@ -708,7 +708,6 @@ HMM_INLINE hmm_vec4 HMM_Vec4v(hmm_vec3 Vector, float W)
 /*
  * Binary vector operations
  */
-
 COVERAGE(HMM_AddVec2, 1)
 HMM_INLINE hmm_vec2 HMM_AddVec2(hmm_vec2 Left, hmm_vec2 Right)
 {
