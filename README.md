@@ -7,4 +7,6 @@ The executable is placed at bin directory with name `app`.
 Running it will produce an image in the same directory.
 
 ## Windows
-Coming (very) soon.
+Requires Visual Studio.
+First, setup the environment using the `vcvarsXX.bat` file.
+The run `build.bat` to build the project.

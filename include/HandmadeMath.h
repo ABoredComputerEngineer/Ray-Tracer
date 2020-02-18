@@ -3238,5 +3238,7 @@ typedef hmm_vec2 v2;
 typedef hmm_vec3 v3;
 typedef hmm_vec4 v4;
 typedef hmm_mat4 m4;
+
+#define HMM_RADIANS( x ) ( ( HMM_PI / 180 ) * (x) )
 #endif /* HANDMADE_MATH_IMPLEMENTATION */
 #endif

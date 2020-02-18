@@ -209,7 +209,8 @@ enum MaterialType {
   MATERIAL_DIFFUSE,
   MATERIAL_METALLIC,
   MATERIAL_GLASS,
-  MATERIAL_LIGHT,
+  MATERIAL_DIFFUSE_LIGHT,
+  MATERIAL_SPOT_LIGHT
 };
 
 
@@ -248,7 +249,12 @@ struct Material {
     };
 
     struct {
-      v3 light_color;
+      v3 diff_light_color;
+    };
+
+    struct {
+      v3 spot_light_color;
+      float angle;
     };
   };
   
@@ -280,11 +286,21 @@ inline bool no_scatter(
     v3 &attenuation,
     Ray &out ){ return false; }
 
-Material create_material_light( const v3 &color ){
+Material create_diffuse_light( const v3 &color ){
   Material m;
-  m.type = MATERIAL_LIGHT;
+  m.type = MATERIAL_DIFFUSE_LIGHT;
   m.scatter = no_scatter;
-  m.light_color = color;
+  m.diff_light_color= color;
+  m.albedo = NULL;
+  return m;
+}
+
+Material create_spot_light( const v3 &color, float angle ){
+  Material m;
+  m.type = MATERIAL_SPOT_LIGHT;
+  m.scatter = no_scatter;
+  m.spot_light_color= color;
+  m.angle = HMM_CosF( HMM_RADIANS(angle) );
   m.albedo = NULL;
   return m;
 }
@@ -370,7 +386,7 @@ bool refraction_scatter(
   
   v3 refract_dir = {0};
   float reflect_prob;
-  v3 reflect_dir = HMM_Reflect( HMM_Normalize(in.direction), rec.n ); 
+  v3 reflect_dir = HMM_Reflect( HMM_NormalizeVec3(in.direction), rec.n ); 
   if ( refract( outward_normal, in.direction,ri, refract_dir ) ){
     // if refraction is possible,
     // calculate the possibility of reflection
@@ -818,12 +834,26 @@ v3 get_ray_color(
 
   if ( bvh_traversal_hit( root, ray,0.001f,FLT_MAX, rec,ordered_prims ) ){
     v3 emitted = { 0.0f, 0.0f, 0.0f };
-    if ( rec.m->type == MATERIAL_LIGHT ){
-      return rec.m->light_color;
+    switch ( rec.m->type ){
+      case MATERIAL_DIFFUSE_LIGHT: 
+        return rec.m->diff_light_color;
+      case MATERIAL_SPOT_LIGHT: {
+        if ( depth == 0 ) return rec.m->spot_light_color; 
+        float x= MAX(-HMM_DotVec3(
+              HMM_NormalizeVec3(ray.direction),
+              rec.n ), 0 );
+        if ( x > rec.m->angle )
+          return rec.m->spot_light_color;
+        else
+          return HMM_PowerF(x,4) * rec.m->spot_light_color;
+        break;
+      }
+      default:
+        break;
     }
     if ( rec.m->scatter( rec, ray, attn, out ) && ( depth < 30 ) ){
         return attn * get_ray_color( root, out, depth+1,ordered_prims );
-    } else if ( depth >= 10  ){
+    } else if ( depth >= 30  ){
       Texture *t = rec.m->albedo;
       emitted = t->get_color( t, 0,0, rec.p );
     }
@@ -926,12 +956,15 @@ int main( ){
   prng_seed();
   int nx = 400;
   int ny = 300;
-  uint64 samples = 100;
+  uint64 samples = 10000;
   float total_pixels = nx * ny; 
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
 //  Texture tex_perlin = create_texture_perlin( &perlin );
-  Texture tex_marble = create_texture_marble( &perlin );
+  Texture tex_marble_white = create_texture_marble( &perlin,
+                             v3{1.0f,1.0f,1.0f} );
+  Texture tex_marble_pink = create_texture_marble( &perlin,
+                            v3{ 0.8f, 0.3f, 0.3f } );
   Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_weak_white= create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
   Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
@@ -991,19 +1024,23 @@ int main( ){
                          &tex_plain_blue,
                          0.042f );
                         
-  Material mat_matte_marble( MATERIAL_PURE_DIFFUSE,
+  Material mat_white_marble( MATERIAL_PURE_DIFFUSE,
                               pure_diffuse_scatter,
-                              &tex_marble,
+                              &tex_marble_white,
+                              0.0f );
+  Material mat_pink_marble( MATERIAL_PURE_DIFFUSE,
+                              pure_diffuse_scatter,
+                              &tex_marble_pink,
                               0.0f );
   Material mat_shiny_marble( MATERIAL_METALLIC,
                               metallic_scatter,
-                              &tex_marble,
+                              &tex_marble_white,
                               0.422f );
   Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_red,0.0f );
-  Material mat_light = create_material_light( v3{12,12,12} );
-
+  Material mat_light = create_diffuse_light( v3{12,12,12} );
+  Material mat_spotlight = create_spot_light( v3{12,12,12}, 20 );
   Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
                          pure_diffuse_scatter,
                          &tex_plain_blue, 0.0f );
@@ -1115,16 +1152,16 @@ int main( ){
        AABB( v3{ -light_dim,0.0f,zmid-light_dim },
              v3{ light_dim ,0.0f,zmid+light_dim  } ),
        1,
-       &mat_light
+       &mat_spotlight
        ); 
   //world_add_sphere( world,
   //    Sphere( {0.0f, -1000.0f, 0.0f}, 1000.0f,&mat_pure_diffuse_white));
   world_add_sphere( world,
-      Sphere( {-1.0f,0.5f,2.0f}, 0.5f, &mat_shiny_marble) );
+      Sphere( {-1.0f,0.5f,2.0f}, 0.5f, &mat_pink_marble) );
   world_add_sphere( world,
       Sphere( {0.0f,0.5f,1.0f}, 0.5f, &mat_pure_metallic) );
   world_add_sphere( world,
-      Sphere( {1.0f,0.5f,1.5f}, 0.5f, &mat_matte_marble) );
+      Sphere( {1.0f,0.5f,1.5f}, 0.5f, &mat_white_marble) );
    world_add_rect( world, left);
    world_add_rect( world, right);
    world_add_rect( world, light);

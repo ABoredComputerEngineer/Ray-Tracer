@@ -49,6 +49,7 @@ struct Texture {
 
     struct {
       Perlin *perlin;
+      v3 marble_color;
     };
 
   };
@@ -75,7 +76,7 @@ v3 get_marble_color( Texture *tex, float u, float v, const v3 &p ){
   Perlin *per = tex->perlin;
   float t= 10*perlin_get_turb( per,p,7 );
   float t1 = 1 + sin( per->scale * p.Z + t );
-  return 0.5 * t1 * v3{ 1.0f, 1.0f, 1.0f };
+  return 0.5 * t1 * tex->marble_color;
 }
 
 
@@ -271,11 +272,12 @@ Texture create_texture_perlin( Perlin *p ){
   t.perlin = p;
   return t;
 }
-Texture create_texture_marble( Perlin *p ){
+Texture create_texture_marble( Perlin *p,v3 color ){
   Texture t;
   t.type = Texture::MARBLE;
   t.get_color = get_marble_color;
   t.perlin = p;
+  t.marble_color = color;
   return t;
 }
 
