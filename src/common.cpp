@@ -103,7 +103,6 @@ Arena new_arena( void ){
   return a;
 }
 
-#ifdef OS_LINUX_CPP
 int read_text_file_to_buffer( const char *path, char **buffer ){
   int fd = open( path, O_RDONLY );
   if ( fd == -1 ){
@@ -142,7 +141,6 @@ cleanup1:
   close( fd );
   return -1;
 }
-#endif
 
 #if 0
 static void *xmalloc( size_t size ){
@@ -446,6 +444,15 @@ void str_test(void){
      str_free(s4);
      str_free(s5);
 }
+
 #endif
 
 
+void print_error_exit(const char *format, ... ){
+     va_list args;
+     va_start(args,format);
+     fprintf( stderr, "FATAL : ");
+     vfprintf(stderr,format,args);
+     va_end(args);
+     assert( 0 );
+}

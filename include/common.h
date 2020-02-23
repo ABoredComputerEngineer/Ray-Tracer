@@ -1,5 +1,6 @@
 #ifndef MY_COMMON_H
 #define MY_COMMON_H
+
 #include <cstdlib>
 #include <cstdio>
 #include <inttypes.h>
@@ -11,14 +12,12 @@
 #include <stddef.h>
 #include <stdarg.h>
 
-#ifdef OS_LINUX_CPP
 #include <x86intrin.h>
 #include <math.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
-#endif
 
 #ifdef OS_WINDOWS_CPP
 #include <windows.h>
@@ -215,5 +214,14 @@ inline int32 Float2Int(float val)
 	return Double2Int((double)val);
 #endif
 }
+
+
+#define print_error(fmt,...) \
+     do { \
+          fprintf(stderr,"In file %s, line %d\n",__FILE__,__LINE__);\
+          fprintf(stderr,fmt,##__VA_ARGS__);\
+          fprintf(stderr,"\n");\
+     } while ( 0 )
+#define Error(...) fprintf( stderr,__VA_ARGS__ )
 
 #endif

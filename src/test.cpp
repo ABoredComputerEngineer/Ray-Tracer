@@ -3,6 +3,7 @@
 #define OS_LINUX_CPP
 #define HANDMADE_MATH_IMPLEMENTATION
 #include <float.h>
+#include "common.h"
 #include "../include/prng.h"
 #include "../include/HandmadeMath.h"
 #include "../include/primitives.h"
@@ -104,11 +105,69 @@ int less_than( void *x ){
   return *(int *)x < 10;
 }
 
+void print_m4( m4 &m ){
+  for ( int i = 0; i < 4; i++ ){
+    for (int j = 0; j < 4; j++ ){
+      fprintf( stdout, "%f ", m[i][j]);
+    }
+    fprintf( stdout, "\n" );
+  }
+}
+
 int main( void ){
-  v3 a = {1.0f,1.0f,1.0f};
-  v3 b = { 3.0f, 4.0f, 2.0f };
-  v3 c = a * b;
-  printf("%f, %f, %f \n", c.X,c.Y,c.Z );
+  m4 projection = HMM_Perspective(40,
+                  800.0f/600.0f,
+                  0.1f, 10.0f );
+  m4 view = HMM_LookAt( 
+            v3{ 0.0f, 0.5f, 5.0f },
+            v3{ 0.0f, 0.5f, -1.0f },
+            v3{ 0.0f, 1.0f, 0.0f } );
+  m4 mv = projection *view;
+  print_m4( mv );
+  fprintf( stdout, "\nThe inverse is: \n" );
+  m4 inv = GetInverse( projection );
+  print_m4( inv );
+  v3 point = { 400, 400, 5.0f };
+  
+  for ( int i = 0; i < 26; i++ ){
+    fprintf( stdout,"KEY_CALLBACK_CASE(%c)\n", 'A' + i );
+  }
   return 0;
 
 }
+2.060608 0.000000 0.000000 0.000000 
+0.000000 2.747478 0.000000 0.000000 
+0.000000 0.000000 -1.020202 -1.000000 
+0.000000 -1.373739 4.898990 5.000000 
+
+The inverse is: 
+0.485294 -0.000000 -0.000000 0.000000 
+-0.000000 0.363970 0.000000 -0.000000 
+-0.000000 0.000000 -0.000000 -4.950000 
+0.000000 -0.000000 -1.000000 5.050000 
+KEY_CALLBACK_CASE(A)
+KEY_CALLBACK_CASE(B)
+KEY_CALLBACK_CASE(C)
+KEY_CALLBACK_CASE(D)
+KEY_CALLBACK_CASE(E)
+KEY_CALLBACK_CASE(F)
+KEY_CALLBACK_CASE(G)
+KEY_CALLBACK_CASE(H)
+KEY_CALLBACK_CASE(I)
+KEY_CALLBACK_CASE(J)
+KEY_CALLBACK_CASE(K)
+KEY_CALLBACK_CASE(L)
+KEY_CALLBACK_CASE(M)
+KEY_CALLBACK_CASE(N)
+KEY_CALLBACK_CASE(O)
+KEY_CALLBACK_CASE(P)
+KEY_CALLBACK_CASE(Q)
+KEY_CALLBACK_CASE(R)
+KEY_CALLBACK_CASE(S)
+KEY_CALLBACK_CASE(T)
+KEY_CALLBACK_CASE(U)
+KEY_CALLBACK_CASE(V)
+KEY_CALLBACK_CASE(W)
+KEY_CALLBACK_CASE(X)
+KEY_CALLBACK_CASE(Y)
+KEY_CALLBACK_CASE(Z)
