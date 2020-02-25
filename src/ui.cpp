@@ -27,9 +27,81 @@ typedef float f32;
 #define HMM_MAT4P_PTR(x) (&( x->Elements[0][0]  ))
 #define ENABLE_GL_DEBUG_PRINT 1
 #define MS_TO_SEC(x) ( (x) * 1.0e-3f )
+
 static uint *Quad_elem_indices;
 static uint quad_elem_buffer_index;
 static uint *Line_elem_indices;
+
+static float CubeVertices[] = {
+  // front
+  0.5f, 0.5f, 0.5f,
+  -0.5f, 0.5f, 0.5f,
+  -0.5f, -0.5f, 0.5f,
+  0.5f, -0.5f, 0.5f,
+
+  //back
+  0.5f, 0.5f, -0.5f,
+  -0.5f, 0.5f, -0.5f,
+  -0.5f, -0.5f, -0.5f,
+  0.5f, -0.5f, -0.5f,
+
+  // right
+  0.5f, 0.5f, 0.5f,
+  0.5f, -0.5f, 0.5f,
+  0.5f, -0.5f, -0.5f,
+  0.5f, 0.5f, -0.5f,
+
+  //left
+  -0.5f, 0.5f, 0.5f,
+  -0.5f, -0.5f, 0.5f,
+  -0.5f, -0.5f, -0.5f,
+  -0.5f, 0.5f, -0.5f,
+
+  // top
+  0.5f, 0.5f, 0.5f,
+  -0.5f, 0.5f, 0.5f,
+  -0.5f, 0.5f, -0.5f,
+  0.5f, 0.5f, -0.5f,
+
+  // bottom
+  0.5f, -0.5f, 0.5f,
+  -0.5f, -0.5f, 0.5f,
+  -0.5f, -0.5f, -0.5f,
+  0.5f, -0.5f, -0.5f,
+};
+
+static float CubeNormals[] = {
+  // front
+    0.0f, 0.0f, 1.0f,
+    0.0f, 0.0f, 1.0f,
+    0.0f, 0.0f, 1.0f,
+    0.0f, 0.0f, 1.0f,
+  // back
+    0.0f, 0.0f, -1.0f,
+    0.0f, 0.0f, -1.0f,
+    0.0f, 0.0f, -1.0f,
+    0.0f, 0.0f, -1.0f,
+  // right
+    1.0f, 0.0f, 0.0f,
+    1.0f, 0.0f, 0.0f,
+    1.0f, 0.0f, 0.0f,
+    1.0f, 0.0f, 0.0f,
+    // left
+    -1.0f, 0.0f, 0.0f,
+    -1.0f, 0.0f, 0.0f,
+    -1.0f, 0.0f, 0.0f,
+    -1.0f, 0.0f, 0.0f,
+    // top
+    0.0f, 1.0f, 0.0f,
+    0.0f, 1.0f, 0.0f,
+    0.0f, 1.0f, 0.0f,
+    0.0f, 1.0f, 0.0f,
+    // bottom
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+    0.0f, -1.0f, 0.0f,
+};
 
 struct Camera {
   union {
@@ -44,7 +116,8 @@ struct Camera {
     STATIC
   };
 
-
+  bool should_rotate;
+  bool should_move;
   CameraState state;
   f32 duration;
   f32 elapsed;
@@ -59,7 +132,9 @@ struct Camera {
   const f32 max_yaw;
   Camera ():max_pitch(80.0f),max_yaw(80.0f){}
   Camera ( const v3& Eye, const v3& Center, const v3& Up ):
-    pitch(0.0f),yaw(0.0f),max_pitch(80.0f), max_yaw(80.0f) 
+    should_rotate(true),should_move( true ),
+    pitch(0.0f),yaw(0.0f),
+    max_pitch(80.0f), max_yaw(80.0f) 
   {
     state = STATIC;
     F = HMM_NormalizeVec3(HMM_SubtractVec3(Center, Eye));
@@ -72,6 +147,7 @@ struct Camera {
   }
 
   inline void rotate( f32 p, f32 y ){
+    if ( !should_rotate ) return;
     pitch += p;
     yaw += y;
     yaw = CLAMP( yaw, -max_yaw, max_yaw );
@@ -115,9 +191,15 @@ struct Camera {
     return (Result);
   }
   
-  void move_towards( float t ){ P = P + t * F; }
-  void move_right( float t ){ P = P + t * S; }
-  void move_up( float t ){ P = P + t * U;}
+  void move_towards( float t ){
+    if ( should_move ) P = P + t * F;
+  }
+  void move_right( float t ){
+    if ( should_move ) P = P + t * S;
+  }
+  void move_up( float t ){
+    if ( should_move ) P = P + t * U;
+  }
 
   void update( float dt ){
     switch ( state ){
@@ -141,7 +223,9 @@ struct Camera {
     }
   }
 
+
   inline void start_animate( int dir,f32 dist, f32 time ){
+    if ( !should_move ) { state = STATIC;  return; }
     state = ANIMATING;
     elapsed = 0;
     dim = dir;
@@ -152,10 +236,27 @@ struct Camera {
   }
 
   inline void continue_animate( f32 time ){
+    if ( !should_move ) { state = STATIC;  return; }
     state = ANIMATING;
     dist_moved = 0.0f;
     elapsed = 0;
     duration = MS_TO_SEC( time );
+  }
+
+  inline void toggle_move( ){ should_move = !should_move; }
+
+  inline void toggle_rotate(){ should_rotate = !should_rotate; }
+
+  void print( ){
+    fprintf( stdout, "Camera Info::\nFront: " );
+    print_v3( F );
+    fprintf( stdout, "\nRight: " );
+    print_v3( S );
+    fprintf( stdout, "\nUp: " );
+    print_v3( U );
+    fprintf( stdout, "\nPoint: " );
+    print_v3( P );
+    fprintf( stdout, "\n" );
   }
 };
 
@@ -595,6 +696,39 @@ struct LineVertexBufferData{
   v3 color;
 };
 
+struct ColorVertexData{
+  v3 p;
+  v3 color;
+};
+
+struct QuadVertexData {
+  v3 p0,p1,p2,p3;
+  v3 c0,c1,c2,c3;
+  v3 n0,n1,n2,n3;
+};
+
+struct RenderContext {
+  ColorVertexData *color_vertex_data_buff = NULL;
+  const uint max_color_vertex_data = 5000;
+  uint num_color_vertex = 0;
+  GLenum *color_vertex_modes = NULL;
+} Rc;
+
+void add_color_vertex( const v3 &p, const v3 &color, GLenum mode ){
+  ColorVertexData v = { p, color };
+  Rc.color_vertex_data_buff[ Rc.num_color_vertex ] = v;
+  Rc.color_vertex_modes[ Rc.num_color_vertex ] = mode;
+  Rc.num_color_vertex++;
+}
+
+void draw_color_line( v3 start ,v3 end, v3 color ){
+  add_color_vertex( start, color, GL_LINES );
+  add_color_vertex( end, color, GL_LINES );
+}
+
+void draw_color_vertex( const m4 &mvp ){
+}
+
 Line create_line( v3 start, v3 end, f32 w, v3 color ){
   Line l = { start, end, w };
   v3 dir = { 1.0f, 0.0f, 0.0f }; 
@@ -615,6 +749,15 @@ struct GridProgramInfo{
   uint8 tfr_id;
 };
 
+struct SimpleColorShaderProgram {
+  uint id;
+  uint mvp_loc;
+
+  uint8 pos_id;
+  uint8 color_id;
+  uint8 normal_id;
+};
+
 struct Grid {
   Line l1, l2;
 
@@ -629,6 +772,7 @@ struct Grid {
 
 
 static GridProgramInfo grid_program_info; 
+static SimpleColorShaderProgram simple_color_shader_info;
 
 
 int create_grid_program( ){
@@ -648,6 +792,28 @@ int create_grid_program( ){
   grid_program_info.tfr_id = 2;
   return 0;
 }
+
+int create_simple_color_shader_program( ){
+  if ( compile_program(&simple_color_shader_info.id,
+        "./shaders/simple-color-shader.vert",
+        "./shaders/simple-color-shader.frag" ) == -1 ){
+    fprintf(stderr,"Unable to compile Program!\n");
+    return -1;
+  }
+  const int &id = simple_color_shader_info.id;
+  
+  glUseProgram( id );
+  simple_color_shader_info.mvp_loc =
+          glGetUniformLocation( id,"mvp" );
+
+  simple_color_shader_info.pos_id = 0;
+  simple_color_shader_info.color_id = 1;
+  simple_color_shader_info.normal_id = 2;
+  glUseProgram( 0 );
+  return 0;
+}
+
+
 
 Grid create_grid_xz( ){
   Grid g;
@@ -674,12 +840,12 @@ Grid create_grid_xz( ){
   glGenBuffers(1,&g.vbo);
 
   glBindVertexArray( g.vao );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
   glBindBuffer( GL_ARRAY_BUFFER, g.vbo );
   glBufferData( GL_ARRAY_BUFFER,
                 g.line_buff_cap * sizeof(LineVertexBufferData),
                 NULL, GL_STATIC_DRAW );
 
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
    
   glEnableVertexAttribArray( grid_program_info.pos_id );
   glEnableVertexAttribArray( grid_program_info.color_id );
@@ -739,6 +905,160 @@ void draw_grid( const Grid &g, const m4 &mvp ){
   glUseProgram( 0 );
 }
 
+enum CubeState {
+  CUBE_ANIMATING,
+  CUBE_STATIC
+};
+
+struct TranslateAnimation {
+  v3 start;
+  v3 end;
+};
+
+struct RotateAnimation {
+  q4 start;
+  q4 end;
+  float t;
+  uint duration;
+  uint elapsed;
+  float angle;
+  m4 rot;
+};
+
+struct Cube {
+
+  enum Faces {
+    FRONT = 0,
+    BACK,
+    RIGHT,
+    LEFT,
+    TOP,
+    BOT
+  };
+  // Render Info
+  uint vao,vbo;
+  uint program;
+
+  CubeState state;
+  TranslateAnimation tanim;
+  RotateAnimation ranim;
+
+  m4 base_transform;
+  v3 pos;
+  float length;
+  q4 orientation;
+  float angle;
+
+  union {
+    v3 color[6];
+  };
+
+};
+
+
+void draw_cube( const Cube &cube, const m4 &vp ){
+  m4 model = cube.base_transform;
+  m4 mvp = vp * model;
+  glUseProgram( simple_color_shader_info.id );
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(mvp) );
+  glBindVertexArray( cube.vao );
+  glDrawElements( GL_TRIANGLES,
+                  36,
+                  GL_UNSIGNED_INT,
+                  0  );
+  glBindVertexArray( 0 );
+  glUseProgram( 0 );
+}
+
+void cube_add_vertex_data( const Cube &cube ){
+  v3 colors[24];
+  for ( int i = 0; i < 24; i++ ){
+    int index = i / 4;
+    colors[ i ] = cube.color[ index ];
+  }
+
+  glBindVertexArray( cube.vao );
+  glBindBuffer( GL_ARRAY_BUFFER, cube.vbo );
+  glBufferSubData( GL_ARRAY_BUFFER, 0, sizeof(CubeVertices), CubeVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices),
+                   sizeof(colors),
+                   colors);
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices) + sizeof(colors),
+                   sizeof(CubeNormals),
+                   (void *)CubeNormals);
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+}
+
+Cube create_cube_one_color( float len, v3 pos, v3 color )
+{
+
+  Cube cube;
+  cube.pos = pos;
+  cube.length = len;
+  for ( int i = 0; i < 6; i++ ){
+    cube.color[i] = color;
+  }
+  uint vao, vbo;
+  cube.base_transform = HMM_Translate(pos) *
+                        HMM_Scale( v3{ len, len, len } ); 
+  glGenVertexArrays( 1, &vao );
+  glGenBuffers( 1, &vbo );
+
+  glBindVertexArray( vao );
+  glBindBuffer( GL_ARRAY_BUFFER, vbo );
+
+  glBufferData( GL_ARRAY_BUFFER,
+                3 * sizeof(CubeVertices), 
+                NULL,
+                GL_STATIC_DRAW );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
+  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
+  glVertexAttribPointer( simple_color_shader_info.pos_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ), (void *)0 );
+
+  glEnableVertexAttribArray( simple_color_shader_info.color_id );
+  glVertexAttribPointer( simple_color_shader_info.color_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ),
+                         (void *)(sizeof(CubeVertices) ) );
+
+  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
+  glVertexAttribPointer( simple_color_shader_info.normal_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ),
+                         (void *)(sizeof(CubeVertices) * 2 ) );
+  
+  cube.vao = vao;
+  cube.vbo = vbo;
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+
+  cube_add_vertex_data( cube );
+  return cube;
+}
+
+struct World {
+  
+  m4 perspective;
+
+  Camera camera;
+
+  Grid grid;
+  Cube cube;
+};
+
+void draw_world( const World &w ){
+}
+
 
 int main(){
 
@@ -794,12 +1114,15 @@ int main(){
   glGenBuffers(1,&quad_elem_buffer_index);
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
   glBufferData( GL_ELEMENT_ARRAY_BUFFER, 
-                sizeof( uint ) * 18,
+                sizeof( uint ) * 100,
                 Quad_elem_indices,
                 GL_STATIC_DRAW
               );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
   if ( create_grid_program() == -1 ){
+    return -1;
+  }
+  if ( create_simple_color_shader_program() == -1 ){
     return -1;
   }
   Grid g = create_grid_xz();
@@ -811,11 +1134,19 @@ int main(){
             v3{ 0.0f, 0.5f, -1.0f },
             v3{ 0.0f, 1.0f, 0.0f }
             );
+
+  Cube cube = create_cube_one_color( 0.2f, v3{0,0,0}, v3 {0,1,0} );
+
+  cube.color[Cube::FRONT] = v3{0.82f, 0.36f, 0.45f};
+  cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
+  cube.color[Cube::LEFT] = v3{0.32f, 0.82f, 0.36f};
+  cube.color[Cube::RIGHT] = v3{0.32f, 0.82f, 0.36f};
+  cube_add_vertex_data( cube );
   int viewport[4];
   glGetIntegerv( GL_VIEWPORT, viewport);
   float dt = 0;
   float current = glfwGetTime();
-  m4 mvp = HMM_Mat4d(1.0f);
+  m4 vp = HMM_Mat4d(1.0f);
 
   double cp[2];
   glfwGetCursorPos( window, &cp[0], &cp[1] );
@@ -851,7 +1182,7 @@ int main(){
               1, 1,
               GL_DEPTH_COMPONENT, GL_FLOAT, &depth_comp);
           v3 point = v3{ ( float )cp[0], (float)cp[1], depth_comp };
-          v3 wp = HMM_UnProject( point, mvp,
+          v3 wp = HMM_UnProject( point, vp,
                                  SCREEN_WIDTH, SCREEN_HEIGHT );
           fprintf( stdout, "The point in world coords is: " );
           print_v3( wp );
@@ -884,6 +1215,15 @@ int main(){
         case KB_PRESS_K:
           camera.start_animate( 1, -0.5f ,500);
           break;
+        case KB_PRESS_T:
+          camera.toggle_move();
+          break;
+        case KB_PRESS_R:
+          camera.toggle_rotate();
+          break;
+        case KB_PRESS_P:
+          camera.print();
+          break;
 #endif
         case KB_REPEAT_W:
             camera.continue_animate( 100 );
@@ -911,16 +1251,15 @@ int main(){
       }
     }
     camera.update( dt );
-    mvp = projection * camera.transform();
+    vp = projection * camera.transform();
     Event_Count = 0;
     glClearColor(0.0f,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-    draw_grid( g, mvp );
-
-
+    draw_grid( g, vp );
+    draw_cube( cube, vp );
     glfwSwapBuffers(window);
     glfwPollEvents();
+  
   }
-
   glfwTerminate();
 }
