@@ -29,6 +29,7 @@ typedef unsigned int uint;
 typedef uint8_t uint8;
 typedef ptrdiff_t ptrdiff;
 
+#define TOLERANCE 0.000001f
 struct BufferContext {
     uint32_t length = 0;
     uint32_t capacity = 0;
@@ -48,11 +49,11 @@ bool internal_array_append(void** base, void* data, uint32_t count, size_t size)
 
 
 template <typename Type>
-bool array_push(Type*& array, const Type& data);
+bool array_push(Type*& array, Type data);
 
 #define array_buffer_hdr(x) (((BufferContext*)x) - 1)
 #define ARRAY_MIN_BUFFER_COUNT 16
-#define array_allocate(type, count, allocator) \
+#define array_allocate(type, count) \
 (type*)array_allocate_size(count, sizeof(type) )
 
 #define array_make( type ) \
@@ -60,6 +61,8 @@ array_allocate(type, ARRAY_MIN_BUFFER_COUNT )
 
 #define array_free(x) internal_array_free(x), x = NULL
 #define array_fits( array, n ) ( array_length( array ) + ( n ) <=  array_capacity( array )  )
+
+#define array_clear( x ) ( array_buffer_hdr( x )->length = 0 )
 
 #define array_append(x, y, c) \
 (internal_array_append((void**)&x, y, c, sizeof(*x)))
@@ -73,9 +76,9 @@ Type& array_get(Type* array, uint32_t index) {
     return array[index];
 }
 
-
+#if 0
 template <typename Type>
-bool array_push(Type*& array, const Type& data) {
+bool array_push(Type*& array, Type data) {
     if ( !array_fits( array, 1 )  ){
         internal_array_grow((void**)&array, 1, sizeof(Type));
     }
@@ -83,6 +86,17 @@ bool array_push(Type*& array, const Type& data) {
     array[array_buffer_hdr(array)->length++] = data;
     return true;
 }
+#endif
+
+#define array_push( array, data ) \
+            do {\
+              if ( !array_fits( array, 1 )  ){\
+                internal_array_grow((void**)&( array ), 1, sizeof(data));\
+              }\
+            ( array )[array_buffer_hdr(array)->length++] = data;\
+            } while ( 0 )
+
+
 inline void* array_allocate_size(uint32_t count, size_t size){
     assert(size && count);  // invalid usage, *count* and *size* MUST not be 0
     assert(size <= (SIZE_MAX- sizeof(BufferContext)) / count);

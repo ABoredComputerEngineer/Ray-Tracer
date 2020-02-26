@@ -77,13 +77,10 @@ void *arena_alloc( Arena *arena, size_t size, size_t align ){
   }
   size_t n_size = MAX( DEFAULT_ARENA_SIZE, 2 * size );
   void *x = xcalloc( 1, n_size );
-  bool e1 = array_push( arena->buff, x );
-  bool e2 = array_push( arena->buff_len, size );
-  bool e3 = array_push( arena->buff_capacity, n_size );
-  if ( e1 && e2 && e3 ){
-    return x;
-  }
-  return NULL;
+  array_push( arena->buff, x );
+  array_push( arena->buff_len, size );
+  array_push( arena->buff_capacity, n_size );
+  return x;
 }
 
 void arena_free( Arena *arena ){

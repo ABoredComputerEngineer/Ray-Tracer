@@ -14,7 +14,6 @@
 #include "stb_image_write.h"
 #include "primitives.h"
 #include "texture.h"
-#define TOLERANCE 0.000001f
 #define ANTI_ALIASING_ON 
 typedef unsigned int uint;
 typedef uint8_t uint8;
@@ -23,25 +22,6 @@ typedef uint32_t uint32;
 typedef uint64_t uint64;
 
 
-struct Ray {
-  v3 start;
-  v3 direction;
-  v3 inv_dir;
-  int sign[3];
-
-  inline v3 point_at( float t ) const{
-    return start + t*(direction);
-  }
-
-  Ray ( v3 origin, v3 dir ):start(origin), direction( dir ) {
-    sign[0] = dir.X < 0;
-    sign[1] = dir.Y < 0;
-    sign[2] = dir.Z < 0;
-
-    inv_dir = v3{ 1/dir.X, 1/dir.Y, 1/dir.Z };
-  }
-  Ray (){}
-};
 
 inline bool refract( const v3 &n, const v3 &v, float ri, v3 &ret ){
   v3 unit_v = HMM_NormalizeVec3( v );
@@ -96,53 +76,6 @@ v3 random_in_unit_sphere( void ){
 
 #endif
 
-bool AABB_hit( 
-    const AABB &box,
-    const Ray &ray,
-    float t0,
-    float t1 )
-{
-  
-  // Calculate for x and y
-  // For eg. for direction = { -1.0f, -1.0f ,-1.0f }
-  // and bounds lower=[ -5, -5, -5 ] and  upper=[ -3, -3, -3 ]
-  // ray.sign = { 1, 1,1 }
-  // xnear = box.bounds[ 1 ].X = -3
-  // xfar = box.bounds[ 1 - 1 ].X = -5
-  float xnear = box.bounds[ ray.sign[0] ].X; 
-  float xfar = box.bounds[ 1-ray.sign[0] ].X;
-
-  float ynear = box.bounds[ ray.sign[1] ].Y; 
-  float yfar = box.bounds[ 1-ray.sign[1] ].Y;
-
-  float znear = box.bounds[ ray.sign[2] ].Z; 
-  float zfar = box.bounds[ 1-ray.sign[2] ].Z;
-
-  float tmin = ( xnear - ray.start.X ) * ray.inv_dir.X;
-  float tmax = ( xfar - ray.start.X ) * ray.inv_dir.X;
-
-  float ytmin = ( ynear - ray.start.Y ) * ray.inv_dir.Y;
-  float ytmax = ( yfar - ray.start.Y ) * ray.inv_dir.Y;
-  
-  // Check if ray lies inside the bounds
-  if ( ytmin > tmax || tmin > ytmax ){ return false; }
-  
-  if ( ytmin > tmin ){ tmin = ytmin; } // Choose max of the two tmin values
-  if ( ytmax < tmax ){ tmax = ytmax; } // Chost min of the two tmax values
-  
-  // this way tmin and tmax lie at the boundary of the AABB
-
-  float ztmin = ( znear - ray.start.Z ) * ray.inv_dir.Z;
-  float ztmax = ( zfar - ray.start.Z ) * ray.inv_dir.Z;
-
-  if ( ztmin > tmax || tmin > ztmax ){ return false; }
-
-  if ( ztmin > tmin ){ tmin = ztmin; } // Choose max of the two tmin values
-  if ( ztmax < tmax ){ tmax = ztmax; } // Chost min of the two tmax values
-  
-  // tmin < tmax is always true
-  return ( ( tmin < t1 ) && ( tmax > t0 ) );
-}
 
 
 

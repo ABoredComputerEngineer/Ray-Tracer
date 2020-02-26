@@ -8,9 +8,9 @@
 #include <cassert>
 #include <cmath>
 #define STB_IMAGE_IMPLEMENTATION
-#define USE_KEY_CALLBACK 1
 #include <stb_image.h>
 #include "HandmadeMath.h"
+#include "primitives.h"
 
 void print_v3( const v3 &v ){
   fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
@@ -128,11 +128,15 @@ struct Camera {
 
   f32 pitch; 
   f32 yaw;
-  const f32 max_pitch;
-  const f32 max_yaw;
+  f32 max_pitch;
+  f32 max_yaw;
+
+  Plane plane;
+
   Camera ():max_pitch(80.0f),max_yaw(80.0f){}
+  Camera ( const Camera & );
   Camera ( const v3& Eye, const v3& Center, const v3& Up ):
-    should_rotate(true),should_move( true ),
+    should_rotate(false),should_move( true ),
     pitch(0.0f),yaw(0.0f),
     max_pitch(80.0f), max_yaw(80.0f) 
   {
@@ -141,9 +145,6 @@ struct Camera {
     S = HMM_NormalizeVec3(HMM_Cross(F, Up));
     U = HMM_Cross(S, F);
     P = Eye;
-
-    duration = MS_TO_SEC( 700 );
-    speed = 1.0f/MS_TO_SEC(500);
   }
 
   inline void rotate( f32 p, f32 y ){
@@ -166,7 +167,7 @@ struct Camera {
 
   }
 
-  m4 transform( ){
+  m4 transform( ) const {
     m4 Result;
     Result.Elements[0][0] = S.X;
     Result.Elements[0][1] = U.X;
@@ -257,6 +258,19 @@ struct Camera {
     fprintf( stdout, "\nPoint: " );
     print_v3( P );
     fprintf( stdout, "\n" );
+  }
+
+  bool hit_plane(
+      const Ray &ray,
+      v3 &point )
+  {
+    float d = HMM_DotVec3( ray.direction, F );
+    if ( abs( d ) < TOLERANCE )
+      return false;
+    v3 temp = P - ray.start;
+    float t = HMM_DotVec3( temp, F )/d ;
+    point = ray.point_at( t );
+    return true;
   }
 };
 
@@ -740,6 +754,14 @@ Line create_line( v3 start, v3 end, f32 w, v3 color ){
   return l;
 }
 
+Line create_line_from_ray( const Ray &r, f32 len, v3 color ){
+  Line l;
+  l.start = r.start;
+  l.end = r.point_at( len );
+  l.color= color;
+  return l;
+}
+
 struct GridProgramInfo{
   uint id;
   uint mvp_loc;
@@ -1054,9 +1076,62 @@ struct World {
 
   Grid grid;
   Cube cube;
+  
+  Line *lines;
+
+  uint color_vao, color_vbo;  
+  ColorVertexData *color_vertex_data;
+  GLenum *color_vertex_modes;
 };
 
 void draw_world( const World &w ){
+  m4 vp = w.perspective*w.camera.transform();
+  draw_grid(w.grid,vp);
+  draw_cube( w.cube,vp);
+
+  // Create line vertex data for rendering
+  if ( array_length( w.lines ) == 0 ) return;
+  for ( int i = 0; i < array_length( w.lines ); i++ ){
+    ColorVertexData d = { w.lines[i].start, w.lines[i].color };
+    array_push( w.color_vertex_data,d ); 
+    array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+
+    d.p = w.lines[i].end;
+    d.color = w.lines[i].color;
+    array_push( w.color_vertex_data,d );
+    array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+
+  }
+
+  glUseProgram( simple_color_shader_info.id );
+  glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
+  glBufferData( GL_ARRAY_BUFFER, 
+                sizeof(ColorVertexData) * array_length( w.color_vertex_data ),
+                w.color_vertex_data,
+                GL_STATIC_DRAW
+              );
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(vp) );
+  uint start = 0;
+  uint current = 0;
+  uint mode = w.color_vertex_modes[0];
+  uint len;
+  for ( int i = 1; i < array_length( w.color_vertex_modes ); i++ ){
+    if ( mode != w.color_vertex_modes[i] ){
+      len = i - start; 
+      glDrawArrays( mode, start, len  );
+      start = i;
+    }
+  }
+
+  if ( start < array_length( w.color_vertex_modes ) ){
+    glDrawArrays( mode, start, array_length( w.color_vertex_modes ) - start );
+  }
+  glUseProgram( 0 );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
 }
 
 
@@ -1125,29 +1200,61 @@ int main(){
   if ( create_simple_color_shader_program() == -1 ){
     return -1;
   }
-  Grid g = create_grid_xz();
-  m4 projection = HMM_Perspective(40,
+
+  World *world = (World *)malloc( sizeof(World) );
+  World &w = *world;
+  w.grid = create_grid_xz();
+  w.perspective= HMM_Perspective(40,
                   (float)SCREEN_WIDTH/SCREEN_HEIGHT,
                   0.1f, 10.0f );
-  Camera camera( 
+  w.camera = Camera( 
             v3{ 0.0f, 0.5f, 5.0f },
             v3{ 0.0f, 0.5f, -1.0f },
             v3{ 0.0f, 1.0f, 0.0f }
             );
+  Camera &camera = w.camera;
 
-  Cube cube = create_cube_one_color( 0.2f, v3{0,0,0}, v3 {0,1,0} );
+  w.cube = create_cube_one_color( 0.2f, v3{0,0,0}, v3 {0,1,0} );
 
-  cube.color[Cube::FRONT] = v3{0.82f, 0.36f, 0.45f};
-  cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
-  cube.color[Cube::LEFT] = v3{0.32f, 0.82f, 0.36f};
-  cube.color[Cube::RIGHT] = v3{0.32f, 0.82f, 0.36f};
-  cube_add_vertex_data( cube );
+  w.cube.color[Cube::FRONT] = v3{0.82f, 0.36f, 0.45f};
+  w.cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
+  w.cube.color[Cube::LEFT] = v3{0.32f, 0.32f, 0.86f};
+  w.cube.color[Cube::RIGHT] = v3{0.32f, 0.32f, 0.86f};
+  cube_add_vertex_data( w.cube );
+  
+  w.lines = array_allocate( Line, 10 );
+  w.color_vertex_data = array_allocate( ColorVertexData, 1000 );
+  w.color_vertex_modes = array_allocate( GLenum ,1000 );
+  
+  glGenVertexArrays(1, &w.color_vao );
+  glGenBuffers( 1, &w.color_vbo );
+
+  glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
+  glBufferData( GL_ARRAY_BUFFER,
+                100 * sizeof(ColorVertexData),
+                NULL, GL_STATIC_DRAW );
+
+  glEnableVertexAttribArray( simple_color_shader_info.pos_id );
+  glEnableVertexAttribArray( simple_color_shader_info.color_id );
+
+  glVertexAttribPointer( simple_color_shader_info.pos_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         sizeof(ColorVertexData),
+                         (void *)( 0 ) );
+
+  glVertexAttribPointer( simple_color_shader_info.color_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         sizeof(ColorVertexData),
+                         (void *)(3*sizeof(float)) );
+
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
   int viewport[4];
   glGetIntegerv( GL_VIEWPORT, viewport);
   float dt = 0;
   float current = glfwGetTime();
   m4 vp = HMM_Mat4d(1.0f);
-
   double cp[2];
   glfwGetCursorPos( window, &cp[0], &cp[1] );
   const float camera_sensitivity = 0.5f;
@@ -1171,19 +1278,12 @@ int main(){
         }
         case MOUSE_RBUTTON_CLICK:
         {
-          fprintf( stdout, "The event is %d\n", Event_Queue[i].type );
-          if ( glfwGetWindowAttrib(window, GLFW_HOVERED ) ){
-            glfwGetCursorPos( window, &cp[0], &cp[1] );
-            fprintf( stdout, "%f, %f\n",
-                     (f32)cp[0], (f32) cp[1] );
-          }
-          f32 depth_comp = 0.0f;
-          glReadPixels( (f32)cp[0],(f32)cp[1],
-              1, 1,
-              GL_DEPTH_COMPONENT, GL_FLOAT, &depth_comp);
-          v3 point = v3{ ( float )cp[0], (float)cp[1], depth_comp };
-          v3 wp = HMM_UnProject( point, vp,
+          v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
+          v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
                                  SCREEN_WIDTH, SCREEN_HEIGHT );
+          Ray ray( camera.P, ( wp - camera.P ) );
+          array_push( w.lines,
+                      create_line_from_ray( ray, 10.0f, v3{0,1.0f,0.0f} ) );
           fprintf( stdout, "The point in world coords is: " );
           print_v3( wp );
           fprintf( stdout, "\n" );
@@ -1194,26 +1294,26 @@ int main(){
           break;
 #if 1
         case KB_PRESS_W:
-          camera.start_animate( 2, 1.0f ,500);
+          camera.start_animate( 2, 0.2f ,300);
           break;
 
         case KB_PRESS_S:
-          camera.start_animate( 2, -1.0f ,500);
+          camera.start_animate( 2, -0.2f ,300);
           break;
 
         case KB_PRESS_A:
-          camera.start_animate( 0, -1.0f ,500);
+          camera.start_animate( 0, -0.2f ,300);
           break;
 
         case KB_PRESS_D:
-          camera.start_animate( 0, 1.0f ,500);
+          camera.start_animate( 0, 0.2f ,300);
           break;
 
         case KB_PRESS_I:
-          camera.start_animate( 1, 0.5f ,500);
+          camera.start_animate( 1, 0.1f ,300);
           break;
         case KB_PRESS_K:
-          camera.start_animate( 1, -0.5f ,500);
+          camera.start_animate( 1, -0.1f ,300);
           break;
         case KB_PRESS_T:
           camera.toggle_move();
@@ -1251,15 +1351,16 @@ int main(){
       }
     }
     camera.update( dt );
-    vp = projection * camera.transform();
     Event_Count = 0;
     glClearColor(0.0f,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
-    draw_grid( g, vp );
-    draw_cube( cube, vp );
+  
+
+    draw_world(w);
     glfwSwapBuffers(window);
     glfwPollEvents();
-  
+    array_clear( w.color_vertex_data );
+    array_clear( w.color_vertex_modes );
   }
   glfwTerminate();
 }

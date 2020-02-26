@@ -125,6 +125,7 @@
 
 #ifdef HANDMADE_MATH__USE_SSE
 #include <xmmintrin.h>
+#include <x86intrin.h>
 #endif
 
 #ifndef HANDMADE_MATH_H
@@ -3370,12 +3371,11 @@ hmm_vec3 HMM_UnProject(
     int width, int height )
 {
   hmm_mat4 inv = GetInverse( vp );
-  hmm_vec4 point = { pos.X, height-pos.Y, pos.Z, 1.0f };
-  hmm_vec4 y = { width, height, 1.0f, 1.0f };
-  // Convert to NDC
-  hmm_vec4 ones = { 1.0f, 1.0f, 1.0f, 1.0f };
-  hmm_vec4 p = ( point / y ) * 2.0f - ones;
-  hmm_vec4 x = inv * p;
+  hmm_vec4 point = { -1 + 2.0f * pos.X/width,
+                     1 -2.0f * pos.Y/ height,
+                     0.0f,
+                     1.0f };
+  hmm_vec4 x = inv * point;
   x /= x[3];
   return x.XYZ;
 }
