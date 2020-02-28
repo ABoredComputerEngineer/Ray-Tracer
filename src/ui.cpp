@@ -10,7 +10,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #include "HandmadeMath.h"
-#include "primitives.h"
+#include "ui_primitives.h"
 
 void print_v3( const v3 &v ){
   fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
@@ -214,8 +214,6 @@ struct Camera {
 #else
         float dist = dt * speed;
         P += dist * basis[dim];
-        elapsed += dt;
-        if ( elapsed >= duration ) state = STATIC;
 #endif
         break;
       }
@@ -232,17 +230,9 @@ struct Camera {
     dim = dir;
     dist_to_move = 1.0f;
     dist_moved = 0.0f;
-    duration = MS_TO_SEC( time );
     speed = dist/MS_TO_SEC( time );
   }
 
-  inline void continue_animate( f32 time ){
-    if ( !should_move ) { state = STATIC;  return; }
-    state = ANIMATING;
-    dist_moved = 0.0f;
-    elapsed = 0;
-    duration = MS_TO_SEC( time );
-  }
 
   inline void toggle_move( ){ should_move = !should_move; }
 
@@ -275,6 +265,36 @@ struct Camera {
 };
 
 struct GLWindow {
+};
+
+enum Keys {
+    KB_KEY_A = 0,
+    KB_KEY_B,
+    KB_KEY_C,
+    KB_KEY_D,
+    KB_KEY_E,
+    KB_KEY_F,
+    KB_KEY_G,
+    KB_KEY_H,
+    KB_KEY_I,
+    KB_KEY_J,
+    KB_KEY_K,
+    KB_KEY_L,
+    KB_KEY_M,
+    KB_KEY_N,
+    KB_KEY_O,
+    KB_KEY_P,
+    KB_KEY_Q,
+    KB_KEY_R,
+    KB_KEY_S,
+    KB_KEY_T,
+    KB_KEY_U,
+    KB_KEY_V,
+    KB_KEY_W,
+    KB_KEY_X,
+    KB_KEY_Y,
+    KB_KEY_Z,
+    KB_KEY_ESCAPE
 };
 
 enum EventType {
@@ -333,6 +353,32 @@ enum EventType {
     KB_REPEAT_X,
     KB_REPEAT_Y,
     KB_REPEAT_Z,
+    KB_RELEASE_A,
+    KB_RELEASE_B,
+    KB_RELEASE_C,
+    KB_RELEASE_D,
+    KB_RELEASE_E,
+    KB_RELEASE_F,
+    KB_RELEASE_G,
+    KB_RELEASE_H,
+    KB_RELEASE_I,
+    KB_RELEASE_J,
+    KB_RELEASE_K,
+    KB_RELEASE_L,
+    KB_RELEASE_M,
+    KB_RELEASE_N,
+    KB_RELEASE_O,
+    KB_RELEASE_P,
+    KB_RELEASE_Q,
+    KB_RELEASE_R,
+    KB_RELEASE_S,
+    KB_RELEASE_T,
+    KB_RELEASE_U,
+    KB_RELEASE_V,
+    KB_RELEASE_W,
+    KB_RELEASE_X,
+    KB_RELEASE_Y,
+    KB_RELEASE_Z,
 };
 struct Event {
   EventType type;
@@ -456,6 +502,8 @@ void key_callback(GLFWwindow* window,
 
 #define KEY_REPEAT_CASE(x) \
   case GLFW_KEY_##x: t = KB_REPEAT_##x; break;
+#define KEY_RELEASE_CASE(x) \
+  case GLFW_KEY_##x: t = KB_RELEASE_##x; break;
   if ( action == GLFW_PRESS ){
     switch ( key ){
       KEY_PRESS_CASE(A)
@@ -526,27 +574,58 @@ void key_callback(GLFWwindow* window,
       default:
         break;
     }
+  } else if ( action == GLFW_RELEASE ){
+    switch ( key ){
+      KEY_RELEASE_CASE(A)
+      KEY_RELEASE_CASE(B)
+      KEY_RELEASE_CASE(C)
+      KEY_RELEASE_CASE(D)
+      KEY_RELEASE_CASE(E)
+      KEY_RELEASE_CASE(F)
+      KEY_RELEASE_CASE(G)
+      KEY_RELEASE_CASE(H)
+      KEY_RELEASE_CASE(I)
+      KEY_RELEASE_CASE(J)
+      KEY_RELEASE_CASE(K)
+      KEY_RELEASE_CASE(L)
+      KEY_RELEASE_CASE(M)
+      KEY_RELEASE_CASE(N)
+      KEY_RELEASE_CASE(O)
+      KEY_RELEASE_CASE(P)
+      KEY_RELEASE_CASE(Q)
+      KEY_RELEASE_CASE(R)
+      KEY_RELEASE_CASE(S)
+      KEY_RELEASE_CASE(T)
+      KEY_RELEASE_CASE(U)
+      KEY_RELEASE_CASE(V)
+      KEY_RELEASE_CASE(W)
+      KEY_RELEASE_CASE(X)
+      KEY_RELEASE_CASE(Y)
+      KEY_RELEASE_CASE(Z)
+
+      case GLFW_KEY_ESCAPE:
+        glfwSetWindowShouldClose(window, true);
+        break;
+      default:
+        break;
+    }
   }
   event_push_back( create_keyboard_event(t, scancode, mods ) );
 }
-#if 0
-void processInput(GLFWwindow *window)
-{
-  if ( IS_KEY_PRESS( ESCAPE ) ){
-    glfwSetWindowShouldClose(window, true);
-  } else if ( IS_KEY_PRESS( W ) ){
-    // w moves us  TOWARDS the direction the camera is facing
-  } else if ( IS_KEY_PRESS( S ) ){
-    // S moves us AWAY from the direction the camera is facing
-  } else if ( IS_KEY_PRESS( A ) ){
-  } else if ( IS_KEY_PRESS( D ) ){
-  } else if ( IS_KEY_PRESS( I ) ){
-  } else if ( IS_KEY_PRESS( K ) ){
-  } else if ( IS_KEY_PRESS( Z ) ){
-  } else if ( IS_KEY_PRESS( X ) ){
-  }
+
+void process_keyboard_input( GLFWwindow *window, uint8 *key_map ){
+  uint8 press = 0;
+#define GET_KEY_STATE(key) \
+    press = glfwGetKey( window, GLFW_KEY_##key );\
+    key_map[KB_KEY_##key] = ( press==GLFW_RELEASE )?0:1;
+  
+  GET_KEY_STATE(W)
+  GET_KEY_STATE(S)
+  GET_KEY_STATE(A)
+  GET_KEY_STATE(D)
+  GET_KEY_STATE(I)
+  GET_KEY_STATE(K)
 }
-#endif
 
 void mouse_callback( GLFWwindow *window, double xpos, double ypos ){
   event_push_back(
@@ -701,8 +780,6 @@ void flipImage( uint8 *data, int width, int height){
 
 struct Line {
   v3 start, end,color;
-  f32 width;
-  v3 p[4];
 };
 
 struct LineVertexBufferData{
@@ -743,18 +820,13 @@ void draw_color_line( v3 start ,v3 end, v3 color ){
 void draw_color_vertex( const m4 &mvp ){
 }
 
-Line create_line( v3 start, v3 end, f32 w, v3 color ){
-  Line l = { start, end, w };
-  v3 dir = { 1.0f, 0.0f, 0.0f }; 
-  l.p[0] = start - (w/2) * dir;
-  l.p[1] = start + (w/2) * dir;
-  l.p[2] = end + (w/2) * dir;
-  l.p[3] = end - (w/2) * dir;
+Line create_line( const v3 &start, const v3 &end, const v3 &color ){
+  Line l = { start, end };
   l.color = color;
   return l;
 }
 
-Line create_line_from_ray( const Ray &r, f32 len, v3 color ){
+Line create_line_from_ray( const Ray &r, f32 len, const v3 &color ){
   Line l;
   l.start = r.start;
   l.end = r.point_at( len );
@@ -765,10 +837,12 @@ Line create_line_from_ray( const Ray &r, f32 len, v3 color ){
 struct GridProgramInfo{
   uint id;
   uint mvp_loc;
-  uint dir_loc;
+  uint corner_loc;
+  uint width_loc;
+
   uint8 pos_id;
+  uint8 direction_id;
   uint8 color_id;
-  uint8 tfr_id;
 };
 
 struct SimpleColorShaderProgram {
@@ -781,16 +855,21 @@ struct SimpleColorShaderProgram {
 };
 
 struct Grid {
+  AARect rect;
   Line l1, l2;
+  v3 dir1, dir2;  
+  v3 corner;
+  f32 w; // width
+  v3 color;
+  int32 nlines;
 
+  uint vao, vbo, ebo;
   LineVertexBufferData *data;
   uint line_buff_len;
   uint line_buff_cap;
-
-  v3 dir1, dir2;  
-
-  uint vao, vbo, ebo;
 };
+
+
 
 
 static GridProgramInfo grid_program_info; 
@@ -808,10 +887,12 @@ int create_grid_program( ){
   
   glUseProgram( id );
   grid_program_info.mvp_loc = glGetUniformLocation( id,"mvp" );
-  grid_program_info.dir_loc= glGetUniformLocation( id,"direction" );
+  grid_program_info.corner_loc = glGetUniformLocation( id,"corner_pos" );
+  grid_program_info.width_loc = glGetUniformLocation( id,"width" );
+
   grid_program_info.pos_id = 0;
-  grid_program_info.color_id = 1;
-  grid_program_info.tfr_id = 2;
+  grid_program_info.direction_id = 1;
+  grid_program_info.color_id = 2;
   return 0;
 }
 
@@ -837,55 +918,100 @@ int create_simple_color_shader_program( ){
 
 
 
-Grid create_grid_xz( ){
+Grid create_grid(
+    AARect::RectType type,
+    const AABB &b,
+    f32 d,
+    f32 width,
+    const v3 &color )
+{
   Grid g;
-  g.l1 = create_line(
-             v3{ 0.0f, 0.0f, 10.0f },
-             v3{ 0.0f, 0.0f, -10.0f },
-             0.01f,
-             v3{1.0f,0.0f,0.0f}
-             );
-  g.dir1 = v3{ 1.0f, 0.0f, 0.0f };
-  g.l2 = create_line(
-             v3{ -100.0f, 0.0f, 0.0f },
-             v3{ 100.0f, 0.0f, 0.0f },
-             0.01f,
-             v3{1.0f,0.0f,0.0f}
-             );
-  g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
-  g.line_buff_len = 0;
-  g.line_buff_cap = 200;
-  g.data = ( LineVertexBufferData * )malloc(
-            sizeof( LineVertexBufferData ) * g.line_buff_cap );
+  g.rect = AARect( type, d, b, 0 ); 
+  g.w = width;
+  g.color = color;
+  switch ( type ){
+    case AARect::PLANE_XY:
+     g.dir1 = v3{ 0.0f, 1.0f, 0.0f };
+     g.dir2 = v3{ 1.0f, 0.0f, 0.0f };
+      break;
+    case AARect::PLANE_YZ:
+     g.dir1 = v3{ 0.0f, 1.0f, 0.0f };
+     g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
+      break;
+    case AARect::PLANE_ZX:
+     g.dir1 = v3{ 1.0f, 0.0f, 0.0f };
+     g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
+      break;
+    default:
+      print_error( "Unknown Case!\n" );
+      break;
+  }
 
+
+  g.nlines = Float2Int( ( g.rect.bounds.u[g.rect.d0]-g.rect.bounds.l[g.rect.d0] )/width );
   glGenVertexArrays(1,&g.vao);
   glGenBuffers(1,&g.vbo);
-
+  f32 len = 100.0f;
   glBindVertexArray( g.vao );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
   glBindBuffer( GL_ARRAY_BUFFER, g.vbo );
-  glBufferData( GL_ARRAY_BUFFER,
-                g.line_buff_cap * sizeof(LineVertexBufferData),
-                NULL, GL_STATIC_DRAW );
+  
+  v3 vertex_data[12];
 
+  vertex_data[0] = g.rect.corner + len * g.dir1;
+  vertex_data[1] = g.dir2;
+  vertex_data[2] = color;
+
+  vertex_data[3] = g.rect.corner;
+  vertex_data[4] = g.dir2;
+  vertex_data[5] = color;
+
+  vertex_data[6] = g.rect.corner;
+  vertex_data[7] = g.dir1;
+  vertex_data[8] = color;
+
+  vertex_data[9] = g.rect.corner + len * g.dir2;
+  vertex_data[10] = g.dir1;
+  vertex_data[11] = color;
+
+  glBufferData( GL_ARRAY_BUFFER,
+                sizeof( vertex_data ),
+                vertex_data, GL_STATIC_DRAW );
+
+  GLsizei stride = 3 * sizeof(v3);
    
   glEnableVertexAttribArray( grid_program_info.pos_id );
+  glEnableVertexAttribArray( grid_program_info.direction_id);
   glEnableVertexAttribArray( grid_program_info.color_id );
 
-  glVertexAttribPointer( 0,
+  glVertexAttribPointer( grid_program_info.pos_id,
                          3, GL_FLOAT, GL_FALSE,
-                         sizeof(LineVertexBufferData),
+                         stride,
                          (void *)( 0 ) );
 
-  glVertexAttribPointer( 1,
+  glVertexAttribPointer( grid_program_info.direction_id,
                          3, GL_FLOAT, GL_FALSE,
-                         sizeof(LineVertexBufferData),
-                         (void *)( 3 * sizeof(f32) ) );
+                         stride, 
+                         (void *)( sizeof(v3) ) );
+
+  glVertexAttribPointer( grid_program_info.color_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         stride,
+                         (void *)( 2 * sizeof(v3) ) );
 
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
   return g;
+}
+
+
+bool hit_grid(
+    const Grid &g,
+    const Ray &ray,
+    float tmin, float tmax,
+    HitRecord &record )
+{
+  return hit_AARect( g.rect, ray, tmin, tmax, record );
 }
 
 void draw_grid( const Grid &g, const m4 &mvp ){
@@ -894,34 +1020,12 @@ void draw_grid( const Grid &g, const m4 &mvp ){
   glUniformMatrix4fv( grid_program_info.mvp_loc,
                       1,GL_FALSE,
                       HMM_MAT4_PTR(mvp) );
-  glUniform3fv( grid_program_info.dir_loc, 1,  &g.dir1.Elements[0] );
-  const Line &l1 = g.l1;
-  g.data[0] = LineVertexBufferData{ l1.start, l1.color };
-  g.data[1] = LineVertexBufferData{ l1.end, l1.color };
+  glUniform3fv( grid_program_info.corner_loc, 1,  g.rect.corner.Elements );
+  glUniform1f( grid_program_info.width_loc, g.w );
+
   glBindVertexArray( g.vao );
-  glBindBuffer( GL_ARRAY_BUFFER, g.vbo );
-  glBufferData( GL_ARRAY_BUFFER, 
-                sizeof( LineVertexBufferData ) * 2,
-                (void *)g.data,
-                GL_STATIC_DRAW
-              );
-  glDrawElementsInstanced( GL_LINES,
-                           2, GL_UNSIGNED_INT,
-                           0,
-                           100);
-  g.data[0] = LineVertexBufferData{ g.l2.start, g.l2.color };
-  g.data[1] = LineVertexBufferData{ g.l2.end, g.l2.color };
-  glUniform3fv( grid_program_info.dir_loc, 1,  &g.dir2.Elements[0] );
-  glBindBuffer( GL_ARRAY_BUFFER, g.vbo );
-  glBufferData( GL_ARRAY_BUFFER, 
-                sizeof( LineVertexBufferData ) * 2,
-                (void *)g.data,
-                GL_STATIC_DRAW
-              );
-  glDrawElementsInstanced( GL_LINES,
-                           2, GL_UNSIGNED_INT,
-                           0,
-                           100);
+  glDrawArraysInstanced( GL_LINES, 0, 12, g.nlines );
+
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glUseProgram( 0 );
@@ -1203,7 +1307,13 @@ int main(){
 
   World *world = (World *)malloc( sizeof(World) );
   World &w = *world;
-  w.grid = create_grid_xz();
+  w.grid = create_grid(
+            AARect::PLANE_ZX,
+            AABB( v3{ -10.0f, 0.0f, -10.0f }, v3{ 10.0f, 0.0f, 10.0f } ),
+            0.0f,
+            0.1f,
+            v3{0.0f,0.0f,1.0f} );
+
   w.perspective= HMM_Perspective(40,
                   (float)SCREEN_WIDTH/SCREEN_HEIGHT,
                   0.1f, 10.0f );
@@ -1258,12 +1368,17 @@ int main(){
   double cp[2];
   glfwGetCursorPos( window, &cp[0], &cp[1] );
   const float camera_sensitivity = 0.5f;
+
+  uint8 *key_map = (uint8 *)malloc( sizeof(uint8) * 400 );
+  memset( key_map, 0, 400 * sizeof(uint8) );
+
   while ( !glfwWindowShouldClose( window  ) ){
     float now = glfwGetTime();
     dt = now - current;
     current = now;
-//    processInput( window );
- 
+    process_keyboard_input( window, key_map );
+
+    //check camera events
     for ( int i = 0; i < Event_Count; i++ ){
       switch ( Event_Queue[i].type ){
         case MOUSE_MOVE:
@@ -1293,27 +1408,27 @@ int main(){
         case MOUSE_LBUTTON_CLICK:
           break;
 #if 1
-        case KB_PRESS_W:
-          camera.start_animate( 2, 0.2f ,300);
+        case KB_PRESS_W: case KB_REPEAT_W:
+          camera.start_animate( 2, 0.2f ,100);
           break;
 
-        case KB_PRESS_S:
-          camera.start_animate( 2, -0.2f ,300);
+        case KB_PRESS_S:case KB_REPEAT_S:
+          camera.start_animate( 2, -0.2f ,100);
           break;
 
-        case KB_PRESS_A:
-          camera.start_animate( 0, -0.2f ,300);
+        case KB_PRESS_A:case KB_REPEAT_A:
+          camera.start_animate( 0, -0.2f ,100);
           break;
 
-        case KB_PRESS_D:
-          camera.start_animate( 0, 0.2f ,300);
+        case KB_PRESS_D:case KB_REPEAT_D:
+          camera.start_animate( 0, 0.2f ,100);
           break;
 
-        case KB_PRESS_I:
-          camera.start_animate( 1, 0.1f ,300);
+        case KB_PRESS_I:case KB_REPEAT_I:
+          camera.start_animate( 1, 0.2f ,300);
           break;
-        case KB_PRESS_K:
-          camera.start_animate( 1, -0.1f ,300);
+        case KB_PRESS_K:case KB_REPEAT_K:
+          camera.start_animate( 1, -0.2f ,300);
           break;
         case KB_PRESS_T:
           camera.toggle_move();
@@ -1324,28 +1439,61 @@ int main(){
         case KB_PRESS_P:
           camera.print();
           break;
+        case KB_RELEASE_W:
+          if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_A] ||
+                  key_map[KB_KEY_D] || key_map[KB_KEY_I] ||
+                  key_map[KB_KEY_K] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
+        case KB_RELEASE_S:
+          if ( !( key_map[KB_KEY_W] || key_map[KB_KEY_A] ||
+                  key_map[KB_KEY_D] || key_map[KB_KEY_I] ||
+                  key_map[KB_KEY_K] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
+        case KB_RELEASE_A:
+          if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_W] ||
+                  key_map[KB_KEY_D] || key_map[KB_KEY_I] ||
+                  key_map[KB_KEY_K] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
+        case KB_RELEASE_D:
+          if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_A] ||
+                  key_map[KB_KEY_W] || key_map[KB_KEY_I] ||
+                  key_map[KB_KEY_K] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
+        case KB_RELEASE_I:
+          if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_A] ||
+                  key_map[KB_KEY_D] || key_map[KB_KEY_W] ||
+                  key_map[KB_KEY_K] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
+        case KB_RELEASE_K:
+          if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_A] ||
+                  key_map[KB_KEY_D] || key_map[KB_KEY_I] ||
+                  key_map[KB_KEY_W] )
+             )
+          {
+            camera.state = Camera::STATIC;
+          }
+          break;
 #endif
-        case KB_REPEAT_W:
-            camera.continue_animate( 100 );
-          break;
-
-        case KB_REPEAT_S:
-            camera.continue_animate( 100 );
-          break;
-
-        case KB_REPEAT_A:
-            camera.continue_animate( 100 );
-          break;
-
-        case KB_REPEAT_D:
-            camera.continue_animate( 100 );
-          break;
-        case KB_REPEAT_I:
-            camera.continue_animate( 100 );
-          break;
-        case KB_REPEAT_K:
-            camera.continue_animate( 100 );
-          break;
         default:
           break;
       }
@@ -1355,7 +1503,6 @@ int main(){
     glClearColor(0.0f,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
   
-
     draw_world(w);
     glfwSwapBuffers(window);
     glfwPollEvents();
