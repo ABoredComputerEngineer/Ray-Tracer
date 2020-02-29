@@ -103,6 +103,17 @@ static float CubeNormals[] = {
     0.0f, -1.0f, 0.0f,
 };
 
+static v4 DefaultCubeAABBVertex[] = {
+  v4{ 0.5f, 0.5f, 0.5f, 1.0f },
+  v4{ -0.5f, 0.5f, 0.5f,1.0f },
+  v4{ -0.5f, -0.5f, 0.5f,1.0f },
+  v4{ 0.5f, -0.5f, 0.5f, 1.0f},
+  v4{ 0.5f, 0.5f, -0.5f, 1.0f },
+  v4{ -0.5f, 0.5f, -0.5f, 1.0f },
+  v4{ -0.5f, -0.5f, -0.5f,1.0f },
+  v4{ 0.5f, -0.5f, -0.5f, 1.0f }
+};
+
 struct Camera {
   union {
     struct {
@@ -1128,6 +1139,23 @@ bool hit_cube(
   return false;
 }
 
+AABB cube_get_AABB( const Cube &cube ){
+  v3 min = { FLT_MAX, FLT_MAX, FLT_MAX };
+  v3 max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
+  for ( int i = 0; i < 8 ; i++ ){
+    v4 vertex = cube.base_transform * DefaultCubeAABBVertex[i];
+    min.X = ( min.X < vertex.X )?min.X:vertex.X;
+    min.Y = ( min.Y < vertex.Y )?min.Y:vertex.Y;
+    min.Z = ( min.Z < vertex.Z )?min.Z:vertex.Z;
+
+    max.X = ( max.X > vertex.X )?max.X:vertex.X;
+    max.Y = ( max.Y > vertex.Y )?max.Y:vertex.Y;
+    max.Z = ( max.Z > vertex.Z )?max.Z:vertex.Z;
+  }
+
+  return AABB( min, max );
+}
+
 void draw_cube( const Cube &cube, const m4 &vp ){
   m4 model = cube.base_transform;
   m4 mvp = vp * model;
@@ -1223,7 +1251,7 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   uint vao, vbo;
   cube.base_transform = HMM_Translate(pos) *
                         HMM_Scale( v3{ len, len, len } ); 
-
+#if 0
   const f32 sqrt3 = HMM_SquareRootF( 3 );
   AABB bound =  AABB( 
                   sqrt3*len* v3{ -0.5f, -0.5f, -0.5f },
@@ -1231,8 +1259,8 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
                  );
   bound.l += cube.pos;
   bound.u += cube.pos;
-  cube.bounds = bound;
-
+#endif
+  cube.bounds = cube_get_AABB( cube );
 
 
   glGenVertexArrays( 1, &vao );
@@ -1664,7 +1692,7 @@ int main(){
             );
   Camera &camera = w.camera;
 
-  w.cube = create_cube_one_color( 0.2f, v3{0,0,0}, v3 {0,1,0} );
+  w.cube = create_cube_one_color( 0.5f, v3{-1,0.5f,-2}, v3 {0,1,0} );
 
   w.cube.color[Cube::FRONT] = v3{0.82f, 0.36f, 0.45f};
   w.cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};

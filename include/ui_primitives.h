@@ -142,6 +142,11 @@ struct AARect{
   }
 };
 
+struct Object {
+  ObjectType type;
+  void *object;
+};
+
 bool AABB_hit( 
     const AABB &box,
     const Ray &ray,
