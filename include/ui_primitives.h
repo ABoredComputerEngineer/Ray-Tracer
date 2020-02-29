@@ -170,6 +170,16 @@ struct HitRecord{
   v3 p;
   v3 n;
   float u,v;
+
+  void print( ){
+    fprintf( stdout, "Hit Record Info\n" );
+    fprintf( stdout, "Parameter t = %f\n", t );
+    fprintf( stdout, "Point p = " );
+    print_v3( p );
+    fprintf( stdout, "\nNormal n = " );
+    print_v3( n );
+    fprintf( stdout, "\nu = %f, v = %f\n",u,v );
+  }
 };
 
 bool hit_AARect(
@@ -183,8 +193,8 @@ bool hit_AARect(
   //if ( fabs( ray.direction[ rect.ndim ] ) < TOLERANCE ) return false;
   // TODO: We MOST probably don't need a dot product here! Simple multiplication
   // should do
-  float check = HMM_DotVec3( ray.direction, rect.n );
-  if ( check > 0.0f ) return false;
+  //float check = HMM_DotVec3( ray.direction, rect.n );
+  //if ( check > 0.0f ) return false;
   float t = ( rect.d - ray.start[rect.ndim] )/ray.direction[rect.ndim];
   if ( t < tmin || t > tmax ) return false; 
   float a = ray.start[ rect.d0 ] + t * ray.direction[ rect.d0 ];
@@ -201,7 +211,7 @@ bool hit_AARect(
   // UV calculation
   float lower0 = rect.bounds.l[ rect.d0 ];
   float lower1 = rect.bounds.l[ rect.d1 ];
-  record.u = ( a - lower0 )/( rect.bounds.u[rect.d0] - rect.bounds.l[rect.d1] );
+  record.u = ( a - lower0 )/( rect.bounds.u[rect.d0] - rect.bounds.l[rect.d0] );
   record.v = ( b - lower1 )/( rect.bounds.u[rect.d1] - rect.bounds.l[rect.d1] );
 
   record.p[rect.d0] = a;

@@ -12,9 +12,6 @@
 #include "HandmadeMath.h"
 #include "ui_primitives.h"
 
-void print_v3( const v3 &v ){
-  fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
-}
 
 typedef GLuint guint;
 typedef unsigned int uint;
@@ -22,6 +19,9 @@ typedef float f32;
 
 #define SCREEN_WIDTH  800
 #define SCREEN_HEIGHT 600
+
+static uint ScreenWidth = 800;
+static uint ScreenHeight = 600;
 
 #define HMM_MAT4_PTR(x) ( &x.Elements[0][0] )
 #define HMM_MAT4P_PTR(x) (&( x->Elements[0][0]  ))
@@ -685,6 +685,8 @@ void mouse_button_callback(
 void resizeCallback(GLFWwindow* window, int width, int height)
 {
   glViewport(0, 0, width, height);
+  ScreenHeight = height;
+  ScreenWidth = width;
 }
 
 #define CLEANUP(x)  __func__##x
@@ -790,6 +792,7 @@ struct LineVertexBufferData{
 struct ColorVertexData{
   v3 p;
   v3 color;
+  v3 n;
 };
 
 struct QuadVertexData {
@@ -858,8 +861,9 @@ struct Grid {
   AARect rect;
   Line l1, l2;
   v3 dir1, dir2;  
-  v3 corner;
   f32 w; // width
+  f32 unit_u;
+  f32 unit_v;
   v3 color;
   int32 nlines;
 
@@ -931,21 +935,31 @@ Grid create_grid(
   g.color = color;
   switch ( type ){
     case AARect::PLANE_XY:
-     g.dir1 = v3{ 0.0f, 1.0f, 0.0f };
-     g.dir2 = v3{ 1.0f, 0.0f, 0.0f };
+     g.dir1 = v3{ 1.0f, 0.0f, 0.0f };
+     g.dir2 = v3{ 0.0f, 1.0f, 0.0f };
       break;
     case AARect::PLANE_YZ:
      g.dir1 = v3{ 0.0f, 1.0f, 0.0f };
      g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
       break;
     case AARect::PLANE_ZX:
-     g.dir1 = v3{ 1.0f, 0.0f, 0.0f };
-     g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
+     g.dir1 = v3{ 0.0f, 0.0f, 1.0f };
+     g.dir2 = v3{ 1.0f, 0.0f, 0.0f };
       break;
     default:
       print_error( "Unknown Case!\n" );
       break;
   }
+
+  f32 x = g.rect.bounds.u[ g.rect.d0 ];
+  f32 y = g.rect.bounds.l[ g.rect.d0 ];
+
+  f32 z = g.rect.bounds.u[ g.rect.d1 ];
+  f32 w = g.rect.bounds.l[ g.rect.d1 ];
+
+  // u is along rect.d0, v is along rect.d1
+  g.unit_u = g.w / ( x - y );
+  g.unit_v = g.w / ( z - w );
 
 
   g.nlines = Float2Int( ( g.rect.bounds.u[g.rect.d0]-g.rect.bounds.l[g.rect.d0] )/width );
@@ -1013,6 +1027,15 @@ bool hit_grid(
 {
   return hit_AARect( g.rect, ray, tmin, tmax, record );
 }
+
+v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v ){
+  int32 nu = Float2Int( u / grid.unit_u );
+  int32 nv = Float2Int( v / grid.unit_v );
+  return grid.rect.corner +
+         nu*grid.w*grid.dir1 +
+         nv*grid.w*grid.dir2;
+}
+
 
 void draw_grid( const Grid &g, const m4 &mvp ){
   glUseProgram( grid_program_info.id );
@@ -1172,6 +1195,12 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   return cube;
 }
 
+struct ColorQuad {
+  v3 p0,p1,p2,p3;
+  v3 color;
+  v3 n;
+};
+
 struct World {
   
   m4 perspective;
@@ -1182,9 +1211,10 @@ struct World {
   Cube cube;
   
   Line *lines;
-
+  ColorQuad *temp_color_quads;
+  ColorQuad *perm_color_quads;
   uint color_vao, color_vbo;  
-  ColorVertexData *color_vertex_data;
+  v3 *color_vertex_data;
   GLenum *color_vertex_modes;
 };
 
@@ -1194,24 +1224,103 @@ void draw_world( const World &w ){
   draw_cube( w.cube,vp);
 
   // Create line vertex data for rendering
-  if ( array_length( w.lines ) == 0 ) return;
   for ( int i = 0; i < array_length( w.lines ); i++ ){
-    ColorVertexData d = { w.lines[i].start, w.lines[i].color };
-    array_push( w.color_vertex_data,d ); 
+    // Push the ending point
+    array_push( w.color_vertex_data, w.lines[i].start );
+    array_push( w.color_vertex_data, w.lines[i].color );
+    array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
     array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+    
+    // Push the ending point
+    array_push( w.color_vertex_data,w.lines[i].end );
+    array_push( w.color_vertex_data, w.lines[i].color );
 
-    d.p = w.lines[i].end;
-    d.color = w.lines[i].color;
-    array_push( w.color_vertex_data,d );
+    // Line normal, not necessary and only for debuggin purposes
+    // and another shader prob cost too much
+    array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
     array_push( w.color_vertex_modes, (GLenum)GL_LINES );
 
   }
+
+  for ( int i = 0; i < array_length( w.temp_color_quads ); i++ ){
+    const ColorQuad &quad = w.temp_color_quads[i];
+
+    // Push the first triangle
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p1 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    // Push the second triangle
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p3 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+  }
+  for ( int i = 0; i < array_length( w.perm_color_quads ); i++ ){
+    const ColorQuad &quad = w.perm_color_quads[i];
+
+    // Push the first triangle
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p1 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    // Push the second triangle
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p3 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+
+  }
+
 
   glUseProgram( simple_color_shader_info.id );
   glBindVertexArray( w.color_vao );
   glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
   glBufferData( GL_ARRAY_BUFFER, 
-                sizeof(ColorVertexData) * array_length( w.color_vertex_data ),
+                sizeof(v3) * array_length( w.color_vertex_data ),
                 w.color_vertex_data,
                 GL_STATIC_DRAW
               );
@@ -1227,6 +1336,7 @@ void draw_world( const World &w ){
       len = i - start; 
       glDrawArrays( mode, start, len  );
       start = i;
+      mode = w.color_vertex_modes[i];
     }
   }
 
@@ -1333,7 +1443,10 @@ int main(){
   cube_add_vertex_data( w.cube );
   
   w.lines = array_allocate( Line, 10 );
-  w.color_vertex_data = array_allocate( ColorVertexData, 1000 );
+  w.temp_color_quads = array_allocate( ColorQuad, 10 );
+  w.perm_color_quads = array_allocate( ColorQuad, 10 );
+
+  w.color_vertex_data = array_allocate( v3, 1000 );
   w.color_vertex_modes = array_allocate( GLenum ,1000 );
   
   glGenVertexArrays(1, &w.color_vao );
@@ -1342,21 +1455,26 @@ int main(){
   glBindVertexArray( w.color_vao );
   glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
   glBufferData( GL_ARRAY_BUFFER,
-                100 * sizeof(ColorVertexData),
+                1000 * sizeof(v3),
                 NULL, GL_STATIC_DRAW );
 
   glEnableVertexAttribArray( simple_color_shader_info.pos_id );
   glEnableVertexAttribArray( simple_color_shader_info.color_id );
+  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
 
   glVertexAttribPointer( simple_color_shader_info.pos_id,
                          3, GL_FLOAT, GL_FALSE,
-                         sizeof(ColorVertexData),
+                         3 * sizeof(v3),
                          (void *)( 0 ) );
 
   glVertexAttribPointer( simple_color_shader_info.color_id,
                          3, GL_FLOAT, GL_FALSE,
-                         sizeof(ColorVertexData),
-                         (void *)(3*sizeof(float)) );
+                         3 * sizeof(v3),
+                         (void *)(sizeof(v3) ) );
+  glVertexAttribPointer( simple_color_shader_info.normal_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         3 * sizeof(v3),
+                         (void *)(2 * sizeof(v3) ) );
 
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
@@ -1392,16 +1510,32 @@ int main(){
           break;
         }
         case MOUSE_RBUTTON_CLICK:
-        {
+        { 
+          HitRecord record;
           v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
           v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
-                                 SCREEN_WIDTH, SCREEN_HEIGHT );
+                                 ScreenWidth, ScreenHeight);
           Ray ray( camera.P, ( wp - camera.P ) );
+
+          if ( hit_grid( w.grid, ray, 0.001f, 100.0f, record ) ){
+            record.print();
+            v3 p0 = grid_get_corner_point( w.grid, record.u, record.v );
+            fprintf(stdout,"Corner point: ");
+            print_v3( p0 );
+            v3 p1 = p0 + w.grid.dir1 * w.grid.w;
+            v3 p2 = p0 + w.grid.dir1 * w.grid.w + w.grid.dir2 * w.grid.w;
+            v3 p3 = p0 + w.grid.dir2 * w.grid.w;
+            ColorQuad quad = { p0, p1, p2, p3,
+                               v3{ 0.52f,0.15f,0.93f }, // color
+                               w.grid.rect.n
+                             };
+            array_push( w.perm_color_quads, quad );
+            fprintf(stdout,"\n" );
+          }
+#if 0
           array_push( w.lines,
                       create_line_from_ray( ray, 10.0f, v3{0,1.0f,0.0f} ) );
-          fprintf( stdout, "The point in world coords is: " );
-          print_v3( wp );
-          fprintf( stdout, "\n" );
+#endif
           break;
         }
 
@@ -1502,12 +1636,39 @@ int main(){
     Event_Count = 0;
     glClearColor(0.0f,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+
+
+
+
+    if ( !camera.should_rotate ){
+      glfwGetCursorPos( window, &cp[0], &cp[1] );
+      HitRecord record;
+
+      v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
+      v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
+          ScreenWidth, ScreenHeight );
+      Ray ray( camera.P, ( wp - camera.P ) );
+
+      if ( hit_grid( w.grid, ray, 0.001f, 100.0f, record ) ){
+        v3 p0 = grid_get_corner_point( w.grid, record.u, record.v );
+        v3 p1 = p0 + w.grid.dir1 * w.grid.w;
+        v3 p2 = p0 + w.grid.dir1 * w.grid.w + w.grid.dir2 * w.grid.w;
+        v3 p3 = p0 + w.grid.dir2 * w.grid.w;
+        ColorQuad quad = { p0, p1, p2, p3,
+          v3{ 0.42f,0.65f,0.83f }, // color
+          w.grid.rect.n
+        };
+        array_push( w.temp_color_quads, quad );
+      }
+    }
+
   
     draw_world(w);
     glfwSwapBuffers(window);
     glfwPollEvents();
     array_clear( w.color_vertex_data );
     array_clear( w.color_vertex_modes );
+    array_clear( w.temp_color_quads );
   }
   glfwTerminate();
 }

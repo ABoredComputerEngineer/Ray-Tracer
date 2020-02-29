@@ -88,12 +88,12 @@ bool array_push(Type*& array, Type data) {
 }
 #endif
 
-#define array_push( array, data ) \
+#define array_push( array, ... ) \
             do {\
               if ( !array_fits( array, 1 )  ){\
-                internal_array_grow((void**)&( array ), 1, sizeof(data));\
+                internal_array_grow((void**)&( array ), 1, sizeof(*array));\
               }\
-            ( array )[array_buffer_hdr(array)->length++] = data;\
+            ( array )[array_buffer_hdr(array)->length++] = __VA_ARGS__;\
             } while ( 0 )
 
 
@@ -228,6 +228,7 @@ inline int32 Float2Int(float val)
 	return Double2Int((double)val);
 #endif
 }
+
 
 
 #define print_error(fmt,...) \

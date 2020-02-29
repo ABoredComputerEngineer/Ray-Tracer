@@ -3381,11 +3381,18 @@ hmm_vec3 HMM_UnProject(
 }
 
 
+
 typedef hmm_vec2 v2;
 typedef hmm_vec3 v3;
 typedef hmm_vec4 v4;
 typedef hmm_mat4 m4;
 typedef hmm_quaternion q4;
 #define HMM_RADIANS( x ) ( ( HMM_PI / 180 ) * (x) )
+
+
+
+void print_v3( const v3 &v ){
+  fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
+}
 #endif /* HANDMADE_MATH_IMPLEMENTATION */
 #endif
