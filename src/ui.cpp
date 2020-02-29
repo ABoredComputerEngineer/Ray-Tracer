@@ -1025,7 +1025,12 @@ bool hit_grid(
     float tmin, float tmax,
     HitRecord &record )
 {
-  return hit_AARect( g.rect, ray, tmin, tmax, record );
+  if ( hit_AARect( g.rect, ray, tmin, tmax, record ) ){
+    record.obj_type = OBJECT_GRID;
+    record.object = (void *)&g;
+    return true;
+  }
+  return false;
 }
 
 v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v ){
@@ -1092,11 +1097,14 @@ struct Cube {
   TranslateAnimation tanim;
   RotateAnimation ranim;
 
+  AABB bounds;
+
   m4 base_transform;
   v3 pos;
-  float length;
+  f32 length;
+
   q4 orientation;
-  float angle;
+  f32 angle;
 
   union {
     v3 color[6];
@@ -1142,6 +1150,51 @@ void cube_add_vertex_data( const Cube &cube ){
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
 }
+#if 0
+void AABB_generate_vertex( const AABB &box, v3 *mem ){
+  f32 xlen = box.u[0] - box.l[0];
+  f32 ylen = box.u[1] - box.l[1];
+  f32 zlen = box.u[2] - box.l[2];
+  
+  //back 
+  v3 a0 = box.l;
+  v3 a1 = box.l + v3{ xlen, 0, 0 };
+  v3 a2 = box.l + v3{ xlen, ylen, 0 };
+  v3 a3 = box.l + v3{ 0, ylen, 0 };
+
+  //front 
+  v3 a0 = box.l + v3{ 0,0,zlen};
+  v3 a1 = box.l + v3{ xlen, 0, zlen };
+  v3 a2 = box.l + v3{ xlen, ylen, zlen };
+  v3 a3 = box.l + v3{ 0, ylen, zlen };
+
+  //left
+  v3 a0 = box.l + v3{ 0,0,0};
+  v3 a1 = box.l + v3{ 0,0,zlen };
+  v3 a2 = box.l + v3{ 0,ylen,zlen };
+  v3 a3 = box.l + v3{ 0,ylen,0 };
+
+
+  //right
+  v3 a0 = box.l + v3{ xlen,0,0};
+  v3 a1 = box.l + v3{ xlen,0,zlen };
+  v3 a2 = box.l + v3{ xlen,ylen,zlen };
+  v3 a3 = box.l + v3{ xlen,ylen,0 };
+
+  // bottom 
+  v3 a0 = box.l + v3{ 0,0,0};
+  v3 a1 = box.l + v3{ xlen,0,0};
+  v3 a2 = box.l + v3{ xlen,0,zlen};
+  v3 a3 = box.l + v3{ 0,0,zlen };
+  //top 
+  v3 a0 = box.l + v3{ 0,ylen,0};
+  v3 a1 = box.l + v3{ xlen,ylen,0};
+  v3 a2 = box.l + v3{ xlen,ylen,zlen};
+  v3 a3 = box.l + v3{ 0,ylen,zlen };
+
+}
+#endif
+
 
 Cube create_cube_one_color( float len, v3 pos, v3 color )
 {
@@ -1155,6 +1208,19 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   uint vao, vbo;
   cube.base_transform = HMM_Translate(pos) *
                         HMM_Scale( v3{ len, len, len } ); 
+
+  const f32 sqrt3 = HMM_SquareRootF( 3 );
+  AABB bound =  AABB( 
+                  sqrt3*len* v3{ -0.5f, -0.5f, -0.5f },
+                  sqrt3*len* v3{ 0.5f, 0.5f, 0.5f }
+                 );
+  bound.l += cube.pos;
+  bound.u += cube.pos;
+  cube.bounds = bound;
+
+  //AABB_generate_vertex( cube.bounds, mem ); 
+
+
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
 
@@ -1213,23 +1279,247 @@ struct World {
   Line *lines;
   ColorQuad *temp_color_quads;
   ColorQuad *perm_color_quads;
-  uint color_vao, color_vbo;  
+  
+  uint color_vao, color_vbo, color_ebo;  
+
   v3 *color_vertex_data;
-  GLenum *color_vertex_modes;
+  uint *color_vertex_indices;
+
+  uint *index_stack; // Used as stack
+  GLenum *color_vertex_modes; // Used as stack
 };
 
+void world_draw_AABB(
+    const World &w,
+    const AABB &box,
+    v3 color,
+    uint *elem_index )
+{
+  // Sorry for this shit, but its the best i can do for now
+  // TODO: find something better
+  f32 xlen = box.u[0] - box.l[0];
+  f32 ylen = box.u[1] - box.l[1];
+  f32 zlen = box.u[2] - box.l[2];
+  //back 
+  array_push( w.color_vertex_data, box.l);
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen, 0, 0 });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen, ylen, 0 });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+
+  array_push( w.color_vertex_data, box.l + v3{ 0, ylen, 0 });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  // front
+  array_push( w.color_vertex_data, box.l + v3{ 0,0,zlen});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen, 0, zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen, ylen, zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+
+  array_push( w.color_vertex_data, box.l + v3{ 0, ylen, zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+  
+  // left
+  array_push( w.color_vertex_data, box.l);
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ 0,0,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ 0,ylen,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ 0,ylen,0 });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  // right
+  array_push( w.color_vertex_data, box.l + v3{ xlen,0,0});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,0,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,ylen,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,ylen,0 });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  // bottom
+  array_push( w.color_vertex_data, box.l + v3{ 0,0,0});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,0,0});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,0,zlen});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ 0,0,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  // top
+  array_push( w.color_vertex_data, box.l + v3{ 0,ylen,0});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,ylen,0});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ xlen,ylen,zlen});
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  array_push( w.color_vertex_data, box.l + v3{ 0,ylen,zlen });
+  array_push( w.color_vertex_data, color );
+  array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
+
+  uint value = *elem_index; 
+  for ( int i = 0; i < 6; i++ ){
+    array_push( w.color_vertex_indices, value );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value );
+    value += 4;
+  }
+  *elem_index = value;
+  return;
+}
+
+
 void draw_world( const World &w ){
+#define MERGE_PUSH( WORLD, MODE ) \
+  do {\
+    GLenum x = array_pop( WORLD.color_vertex_modes )\
+    GLenum y = array_pop( WORLD.index_stack )\
+    array_push( WORLD.color_vertex_modes, x )\
+    if ( x == MODE ){\
+      array_push(array_length(WORLD.index_stack))\
+    } else {\
+      array_push( y )\
+      array_push(array_length(WORLD.index_stack))\
+    }\
+  } while ( 0 )
+  
   m4 vp = w.perspective*w.camera.transform();
   draw_grid(w.grid,vp);
   draw_cube( w.cube,vp);
 
   // Create line vertex data for rendering
+
+  uint value = 0;
+  for ( int i = 0; i < array_length( w.temp_color_quads ); i++ ){
+    const ColorQuad &quad = w.temp_color_quads[i];
+
+    // Push the first triangle
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    array_push( w.color_vertex_data, quad.p1 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+
+    array_push( w.color_vertex_data, quad.p3 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    // push the indices
+    array_push( w.color_vertex_indices, value );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value );
+
+    value += 4;
+  }
+
+  for ( int i = 0; i < array_length( w.perm_color_quads ); i++ ){
+    const ColorQuad &quad = w.perm_color_quads[i];
+
+    // Push the first triangle
+    array_push( w.color_vertex_data, quad.p0 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    array_push( w.color_vertex_data, quad.p1 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    array_push( w.color_vertex_data, quad.p2 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+
+    array_push( w.color_vertex_data, quad.p3 );
+    array_push( w.color_vertex_data, quad.color );
+    array_push( w.color_vertex_data, quad.n );
+
+    array_push( w.color_vertex_indices, value );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value );
+
+    value += 4;
+
+  }
+
+  array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
+  array_push( w.index_stack, array_length( w.color_vertex_indices ) );
+
+
   for ( int i = 0; i < array_length( w.lines ); i++ ){
     // Push the ending point
+
     array_push( w.color_vertex_data, w.lines[i].start );
     array_push( w.color_vertex_data, w.lines[i].color );
     array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
-    array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+    array_push( w.color_vertex_indices, value++ );
     
     // Push the ending point
     array_push( w.color_vertex_data,w.lines[i].end );
@@ -1238,103 +1528,51 @@ void draw_world( const World &w ){
     // Line normal, not necessary and only for debuggin purposes
     // and another shader prob cost too much
     array_push( w.color_vertex_data, v3{0.0f,0.0f,0.0f} );
-    array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+    array_push( w.color_vertex_indices, value++ );
 
   }
+  world_draw_AABB( w, w.cube.bounds, v3{1.0f,1.0f,1.0f }, &value );
+  array_push( w.color_vertex_modes, (GLenum)GL_LINES );
+  array_push( w.index_stack, array_length(w.color_vertex_indices) );
 
-  for ( int i = 0; i < array_length( w.temp_color_quads ); i++ ){
-    const ColorQuad &quad = w.temp_color_quads[i];
 
-    // Push the first triangle
-    array_push( w.color_vertex_data, quad.p0 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p1 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p2 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    // Push the second triangle
-    array_push( w.color_vertex_data, quad.p2 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p3 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p0 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-  }
-  for ( int i = 0; i < array_length( w.perm_color_quads ); i++ ){
-    const ColorQuad &quad = w.perm_color_quads[i];
-
-    // Push the first triangle
-    array_push( w.color_vertex_data, quad.p0 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p1 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p2 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    // Push the second triangle
-    array_push( w.color_vertex_data, quad.p2 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p3 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-    array_push( w.color_vertex_data, quad.p0 );
-    array_push( w.color_vertex_data, quad.color );
-    array_push( w.color_vertex_data, quad.n );
-    array_push( w.color_vertex_modes, (GLenum)GL_TRIANGLES );
-
-  }
 
 
   glUseProgram( simple_color_shader_info.id );
   glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
+  glBufferData( GL_ELEMENT_ARRAY_BUFFER,
+                sizeof(uint) * array_length( w.color_vertex_indices ),
+                w.color_vertex_indices,
+                GL_STATIC_DRAW );
+
   glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
   glBufferData( GL_ARRAY_BUFFER, 
                 sizeof(v3) * array_length( w.color_vertex_data ),
                 w.color_vertex_data,
                 GL_STATIC_DRAW
               );
+
   glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
                       1,GL_FALSE,
                       HMM_MAT4_PTR(vp) );
-  uint start = 0;
-  uint current = 0;
-  uint mode = w.color_vertex_modes[0];
-  uint len;
+#if 1
+  uint prev = 0;
+  for ( int i = 0; i < array_length( w.color_vertex_modes);i++ ){
+    GLenum mode = w.color_vertex_modes[i];
+    uint len = w.index_stack[i];
+    uint count = len - prev;
+    
+    glDrawElements( mode, count,
+                    GL_UNSIGNED_INT, (void *)( prev * sizeof(uint) ));
+
+    prev = len;
+  }
+#else
   for ( int i = 1; i < array_length( w.color_vertex_modes ); i++ ){
     if ( mode != w.color_vertex_modes[i] ){
       len = i - start; 
-      glDrawArrays( mode, start, len  );
+      glDrawElements( mode, count, GL_UNSIGNED_INT, index );
       start = i;
       mode = w.color_vertex_modes[i];
     }
@@ -1343,11 +1581,31 @@ void draw_world( const World &w ){
   if ( start < array_length( w.color_vertex_modes ) ){
     glDrawArrays( mode, start, array_length( w.color_vertex_modes ) - start );
   }
+#endif
   glUseProgram( 0 );
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
 }
 
+
+bool hit_world(
+    const World &w,
+    const Ray &r,
+    f32 tmin, f32 tmax,
+    HitRecord &record )
+{
+  f32 max = tmax;
+  HitRecord temp_record;
+  bool hit_anything = false;
+  if ( hit_grid( w.grid, r, tmin, tmax, temp_record ) ){
+    hit_anything = true;
+    if ( record.t < max ){
+      max = record.t;
+      record = temp_record;
+    }
+  }
+  return hit_anything;
+}
 
 int main(){
 
@@ -1447,15 +1705,22 @@ int main(){
   w.perm_color_quads = array_allocate( ColorQuad, 10 );
 
   w.color_vertex_data = array_allocate( v3, 1000 );
-  w.color_vertex_modes = array_allocate( GLenum ,1000 );
+  w.color_vertex_modes = array_allocate( GLenum ,3000 );
+  w.color_vertex_indices = array_allocate( uint, 3000 );
   
   glGenVertexArrays(1, &w.color_vao );
   glGenBuffers( 1, &w.color_vbo );
+  glGenBuffers( 1, &w.color_ebo );
 
   glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
+  glBufferData( GL_ELEMENT_ARRAY_BUFFER,
+                1000  * sizeof(v3),
+                NULL, GL_STATIC_DRAW );
+
   glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
   glBufferData( GL_ARRAY_BUFFER,
-                1000 * sizeof(v3),
+                2000 * sizeof(v3),
                 NULL, GL_STATIC_DRAW );
 
   glEnableVertexAttribArray( simple_color_shader_info.pos_id );
@@ -1650,15 +1915,20 @@ int main(){
       Ray ray( camera.P, ( wp - camera.P ) );
 
       if ( hit_grid( w.grid, ray, 0.001f, 100.0f, record ) ){
-        v3 p0 = grid_get_corner_point( w.grid, record.u, record.v );
-        v3 p1 = p0 + w.grid.dir1 * w.grid.w;
-        v3 p2 = p0 + w.grid.dir1 * w.grid.w + w.grid.dir2 * w.grid.w;
-        v3 p3 = p0 + w.grid.dir2 * w.grid.w;
-        ColorQuad quad = { p0, p1, p2, p3,
-          v3{ 0.42f,0.65f,0.83f }, // color
-          w.grid.rect.n
-        };
-        array_push( w.temp_color_quads, quad );
+        if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
+          if ( record.obj_type == OBJECT_GRID ){
+            Grid *grid = (Grid *)record.object;
+            v3 p0 = grid_get_corner_point( *grid, record.u, record.v );
+            v3 p1 = p0 + grid->dir1 * grid->w;
+            v3 p2 = p0 + grid->dir1 * grid->w + grid->dir2 * grid->w;
+            v3 p3 = p0 + grid->dir2 * grid->w;
+            ColorQuad quad = { p0, p1, p2, p3,
+              v3{ 0.42f,0.65f,0.83f }, // color
+              w.grid.rect.n
+            };
+            array_push( w.temp_color_quads, quad );
+          }
+        }
       }
     }
 
@@ -1668,6 +1938,9 @@ int main(){
     glfwPollEvents();
     array_clear( w.color_vertex_data );
     array_clear( w.color_vertex_modes );
+    array_clear( w.color_vertex_indices );
+    array_clear( w.index_stack );
+
     array_clear( w.temp_color_quads );
   }
   glfwTerminate();

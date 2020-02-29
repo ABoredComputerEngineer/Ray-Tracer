@@ -63,6 +63,7 @@ array_allocate(type, ARRAY_MIN_BUFFER_COUNT )
 #define array_fits( array, n ) ( array_length( array ) + ( n ) <=  array_capacity( array )  )
 
 #define array_clear( x ) ( array_buffer_hdr( x )->length = 0 )
+#define array_pop(arr)  ( arr[ --array_buffer_hdr(arr)->length ] )
 
 #define array_append(x, y, c) \
 (internal_array_append((void**)&x, y, c, sizeof(*x)))

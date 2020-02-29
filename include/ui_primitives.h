@@ -165,11 +165,21 @@ bool AABB_hit(
   return ( ( tmin < t1 ) && ( tmax > t0 ) );
 }
 
+enum ObjectType {
+  OBJECT_SPHERE,
+  OBJECT_CUBE,
+  OBJECT_GRID,
+  OBJECT_AARECT
+};
+
 struct HitRecord{
   float t;
   v3 p;
   v3 n;
   float u,v;
+  
+  ObjectType obj_type;
+  void *object;
 
   void print( ){
     fprintf( stdout, "Hit Record Info\n" );
