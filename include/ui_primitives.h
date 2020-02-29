@@ -44,6 +44,31 @@ union AABB{
 
 };
 
+enum ObjectType {
+  OBJECT_SPHERE,
+  OBJECT_CUBE,
+  OBJECT_GRID,
+  OBJECT_AARECT
+};
+struct HitRecord{
+  float t;
+  v3 p;
+  v3 n;
+  float u,v;
+  
+  ObjectType obj_type;
+  void *object;
+
+  void print( ){
+    fprintf( stdout, "Hit Record Info\n" );
+    fprintf( stdout, "Parameter t = %f\n", t );
+    fprintf( stdout, "Point p = " );
+    print_v3( p );
+    fprintf( stdout, "\nNormal n = " );
+    print_v3( n );
+    fprintf( stdout, "\nu = %f, v = %f\n",u,v );
+  }
+};
 struct Sphere {
   v3 c;
   float r;
@@ -121,7 +146,8 @@ bool AABB_hit(
     const AABB &box,
     const Ray &ray,
     float t0,
-    float t1 )
+    float t1, 
+    HitRecord &record )
 {
   
   // Calculate for x and y
@@ -162,35 +188,19 @@ bool AABB_hit(
   if ( ztmax < tmax ){ tmax = ztmax; } // Chost min of the two tmax values
   
   // tmin < tmax is always true
+#if 1
+  if ( ( tmin < t1 ) && ( tmax > t0 ) ){
+    record.t = tmin;
+    return true;
+  }
+  return false;
+#else
   return ( ( tmin < t1 ) && ( tmax > t0 ) );
+#endif
+
 }
 
-enum ObjectType {
-  OBJECT_SPHERE,
-  OBJECT_CUBE,
-  OBJECT_GRID,
-  OBJECT_AARECT
-};
 
-struct HitRecord{
-  float t;
-  v3 p;
-  v3 n;
-  float u,v;
-  
-  ObjectType obj_type;
-  void *object;
-
-  void print( ){
-    fprintf( stdout, "Hit Record Info\n" );
-    fprintf( stdout, "Parameter t = %f\n", t );
-    fprintf( stdout, "Point p = " );
-    print_v3( p );
-    fprintf( stdout, "\nNormal n = " );
-    print_v3( n );
-    fprintf( stdout, "\nu = %f, v = %f\n",u,v );
-  }
-};
 
 bool hit_AARect(
     const AARect &rect,
