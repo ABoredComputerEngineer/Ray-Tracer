@@ -385,6 +385,9 @@ enum EventType {
     KB_RELEASE_X,
     KB_RELEASE_Y,
     KB_RELEASE_Z,
+    KB_PRESS_ESCAPE,
+    KB_RELEASE_ESCAPE,
+    KB_REPEAT_ESCAPE
 };
 struct Event {
   EventType type;
@@ -538,10 +541,8 @@ void key_callback(GLFWwindow* window,
       KEY_PRESS_CASE(X)
       KEY_PRESS_CASE(Y)
       KEY_PRESS_CASE(Z)
+      KEY_PRESS_CASE(ESCAPE)
 
-      case GLFW_KEY_ESCAPE:
-        glfwSetWindowShouldClose(window, true);
-        break;
       default:
         break;
     }
@@ -573,10 +574,8 @@ void key_callback(GLFWwindow* window,
       KEY_REPEAT_CASE(X)
       KEY_REPEAT_CASE(Y)
       KEY_REPEAT_CASE(Z)
+      KEY_REPEAT_CASE(ESCAPE)
 
-      case GLFW_KEY_ESCAPE:
-        glfwSetWindowShouldClose(window, true);
-        break;
       default:
         break;
     }
@@ -608,10 +607,8 @@ void key_callback(GLFWwindow* window,
       KEY_RELEASE_CASE(X)
       KEY_RELEASE_CASE(Y)
       KEY_RELEASE_CASE(Z)
+      KEY_RELEASE_CASE(ESCAPE)
 
-      case GLFW_KEY_ESCAPE:
-        glfwSetWindowShouldClose(window, true);
-        break;
       default:
         break;
     }
@@ -625,12 +622,33 @@ void process_keyboard_input( GLFWwindow *window, uint8 *key_map ){
     press = glfwGetKey( window, GLFW_KEY_##key );\
     key_map[KB_KEY_##key] = ( press==GLFW_RELEASE )?0:1;
   
-  GET_KEY_STATE(W)
-  GET_KEY_STATE(S)
   GET_KEY_STATE(A)
+  GET_KEY_STATE(B)
+  GET_KEY_STATE(C)
   GET_KEY_STATE(D)
+  GET_KEY_STATE(E)
+  GET_KEY_STATE(F)
+  GET_KEY_STATE(G)
+  GET_KEY_STATE(H)
   GET_KEY_STATE(I)
+  GET_KEY_STATE(J)
   GET_KEY_STATE(K)
+  GET_KEY_STATE(L)
+  GET_KEY_STATE(M)
+  GET_KEY_STATE(N)
+  GET_KEY_STATE(O)
+  GET_KEY_STATE(P)
+  GET_KEY_STATE(Q)
+  GET_KEY_STATE(R)
+  GET_KEY_STATE(S)
+  GET_KEY_STATE(T)
+  GET_KEY_STATE(U)
+  GET_KEY_STATE(V)
+  GET_KEY_STATE(W)
+  GET_KEY_STATE(X)
+  GET_KEY_STATE(Y)
+  GET_KEY_STATE(Z)
+  GET_KEY_STATE(ESCAPE)
 }
 
 void mouse_callback( GLFWwindow *window, double xpos, double ypos ){
@@ -895,13 +913,177 @@ int create_simple_color_shader_program( ){
 }
 
 
-void create_grid_render_data( Grid &g ){
+
+#if 0
+void AABB_generate_vertex( const AABB &box, v3 *mem ){
+  f32 xlen = box.u[0] - box.l[0];
+  f32 ylen = box.u[1] - box.l[1];
+  f32 zlen = box.u[2] - box.l[2];
+  
+  //back 
+  v3 a0 = box.l;
+  v3 a1 = box.l + v3{ xlen, 0, 0 };
+  v3 a2 = box.l + v3{ xlen, ylen, 0 };
+  v3 a3 = box.l + v3{ 0, ylen, 0 };
+
+  //front 
+  v3 a0 = box.l + v3{ 0,0,zlen};
+  v3 a1 = box.l + v3{ xlen, 0, zlen };
+  v3 a2 = box.l + v3{ xlen, ylen, zlen };
+  v3 a3 = box.l + v3{ 0, ylen, zlen };
+
+  //left
+  v3 a0 = box.l + v3{ 0,0,0};
+  v3 a1 = box.l + v3{ 0,0,zlen };
+  v3 a2 = box.l + v3{ 0,ylen,zlen };
+  v3 a3 = box.l + v3{ 0,ylen,0 };
+
+
+  //right
+  v3 a0 = box.l + v3{ xlen,0,0};
+  v3 a1 = box.l + v3{ xlen,0,zlen };
+  v3 a2 = box.l + v3{ xlen,ylen,zlen };
+  v3 a3 = box.l + v3{ xlen,ylen,0 };
+
+  // bottom 
+  v3 a0 = box.l + v3{ 0,0,0};
+  v3 a1 = box.l + v3{ xlen,0,0};
+  v3 a2 = box.l + v3{ xlen,0,zlen};
+  v3 a3 = box.l + v3{ 0,0,zlen };
+  //top 
+  v3 a0 = box.l + v3{ 0,ylen,0};
+  v3 a1 = box.l + v3{ xlen,ylen,0};
+  v3 a2 = box.l + v3{ xlen,ylen,zlen};
+  v3 a3 = box.l + v3{ 0,ylen,zlen };
+
+}
+#endif
+
+
+
+struct ColorQuad {
+  v3 p0,p1,p2,p3;
+  v3 color;
+  v3 n;
+};
+
+struct World {
+  enum State {
+    STATE_INVALID = 0,
+    STATE_FREE_VIEW = 1,
+    STATE_DETACHED,
+    STATE_SELECTED
+  };
+
+  State state;
+  bool show_imgui;
+
+  m4 perspective;
+
+  Camera camera;
+
+  Grid grid;
+  Cube cube;
+  
+  Line *lines;
+  ColorQuad *temp_color_quads;
+  ColorQuad *perm_color_quads;
+  
+
+  bool is_selected;
+  Object selected_object;
+
+  GetAABBFunc selected_aabb;
+  MoveFunc selected_move;
+  RotateFunc selected_rotate;
+
+  AABB *boxes;
+
+
+  // Dear imgui selection stuff
+  int cube_face_dropdown;
+  v3 cube_face_color;
+
+  uint grid_vao, grid_vbo, grid_ebo;
+  uint cube_vao, cube_vbo, cube_ebo;
+  
+  uint color_vao, color_vbo, color_ebo;  
+
+  v3 *color_vertex_data;
+  uint *color_vertex_indices;
+
+  uint *index_stack; // Used as stack
+  GLenum *color_vertex_modes; // Used as stack
+};
+
+void world_add_cube_vertex_data( const World &w, const Cube &cube ){
+  v3 colors[24];
+  for ( int i = 0; i < 24; i++ ){
+    int index = i / 4;
+    colors[ i ] = cube.color[ index ];
+  }
+
+  glBindVertexArray( w.cube_vao );
+  glBindBuffer( GL_ARRAY_BUFFER, w.cube_vbo );
+  glBufferSubData( GL_ARRAY_BUFFER, 0, sizeof(CubeVertices), CubeVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices),
+                   sizeof(colors),
+                   colors);
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices) + sizeof(colors),
+                   sizeof(CubeNormals),
+                   (void *)CubeNormals);
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+}
+void world_generate_cube_data( World &w, Cube &cube ){
+  uint &vao = w.cube_vao;
+  uint &vbo = w.cube_vbo;
+  glGenVertexArrays( 1, &vao );
+  glGenBuffers( 1, &vbo );
+
+  glBindVertexArray( vao );
+  glBindBuffer( GL_ARRAY_BUFFER, vbo );
+
+  glBufferData( GL_ARRAY_BUFFER,
+                3 * sizeof(CubeVertices), 
+                NULL,
+                GL_STREAM_DRAW );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
+  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
+  glVertexAttribPointer( simple_color_shader_info.pos_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ), (void *)0 );
+
+  glEnableVertexAttribArray( simple_color_shader_info.color_id );
+  glVertexAttribPointer( simple_color_shader_info.color_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ),
+                         (void *)(sizeof(CubeVertices) ) );
+
+  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
+  glVertexAttribPointer( simple_color_shader_info.normal_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         3 * sizeof( float ),
+                         (void *)(sizeof(CubeVertices) * 2 ) );
+  
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
+  world_add_cube_vertex_data( w,cube );
+}
+void world_generate_grid_data( World &w, Grid &g ){
+
   const v3 &color = g.color;
-  glGenVertexArrays(1,&g.vao);
-  glGenBuffers(1,&g.vbo);
+  glGenVertexArrays(1,&w.grid_vao);
+  glGenBuffers(1,&w.grid_vbo);
   f32 len = 100.0f;
-  glBindVertexArray( g.vao );
-  glBindBuffer( GL_ARRAY_BUFFER, g.vbo );
+  glBindVertexArray( w.grid_vao );
+  glBindBuffer( GL_ARRAY_BUFFER, w.grid_vbo );
   
   v3 vertex_data[12];
 
@@ -952,179 +1134,6 @@ void create_grid_render_data( Grid &g ){
 }
 
 
-
-void draw_grid( const Grid &g, const m4 &mvp ){
-  glUseProgram( grid_program_info.id );
- // Generate rectangle vertices with line vertices
-  glUniformMatrix4fv( grid_program_info.mvp_loc,
-                      1,GL_FALSE,
-                      HMM_MAT4_PTR(mvp) );
-  glUniform3fv( grid_program_info.corner_loc, 1,  g.rect.corner.Elements );
-  glUniform1f( grid_program_info.width_loc, g.w );
-
-  glBindVertexArray( g.vao );
-  glDrawArraysInstanced( GL_LINES, 0, 12, g.nlines );
-
-  glBindVertexArray( 0 );
-  glBindBuffer( GL_ARRAY_BUFFER, 0 );
-  glUseProgram( 0 );
-}
-
-
-void draw_cube( const Cube &cube, const m4 &vp ){
-  m4 model = cube.base_transform;
-  m4 mvp = vp * model;
-  glUseProgram( simple_color_shader_info.id );
-  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
-                      1,GL_FALSE,
-                      HMM_MAT4_PTR(mvp) );
-  glBindVertexArray( cube.vao );
-  glDrawElements( GL_TRIANGLES,
-                  36,
-                  GL_UNSIGNED_INT,
-                  0  );
-  glBindVertexArray( 0 );
-  glUseProgram( 0 );
-}
-
-void cube_add_vertex_data( const Cube &cube ){
-  v3 colors[24];
-  for ( int i = 0; i < 24; i++ ){
-    int index = i / 4;
-    colors[ i ] = cube.color[ index ];
-  }
-
-  glBindVertexArray( cube.vao );
-  glBindBuffer( GL_ARRAY_BUFFER, cube.vbo );
-  glBufferSubData( GL_ARRAY_BUFFER, 0, sizeof(CubeVertices), CubeVertices );
-  glBufferSubData( GL_ARRAY_BUFFER, 
-                   sizeof(CubeVertices),
-                   sizeof(colors),
-                   colors);
-  glBufferSubData( GL_ARRAY_BUFFER, 
-                   sizeof(CubeVertices) + sizeof(colors),
-                   sizeof(CubeNormals),
-                   (void *)CubeNormals);
-  glBindVertexArray( 0 );
-  glBindBuffer( GL_ARRAY_BUFFER, 0 );
-}
-#if 0
-void AABB_generate_vertex( const AABB &box, v3 *mem ){
-  f32 xlen = box.u[0] - box.l[0];
-  f32 ylen = box.u[1] - box.l[1];
-  f32 zlen = box.u[2] - box.l[2];
-  
-  //back 
-  v3 a0 = box.l;
-  v3 a1 = box.l + v3{ xlen, 0, 0 };
-  v3 a2 = box.l + v3{ xlen, ylen, 0 };
-  v3 a3 = box.l + v3{ 0, ylen, 0 };
-
-  //front 
-  v3 a0 = box.l + v3{ 0,0,zlen};
-  v3 a1 = box.l + v3{ xlen, 0, zlen };
-  v3 a2 = box.l + v3{ xlen, ylen, zlen };
-  v3 a3 = box.l + v3{ 0, ylen, zlen };
-
-  //left
-  v3 a0 = box.l + v3{ 0,0,0};
-  v3 a1 = box.l + v3{ 0,0,zlen };
-  v3 a2 = box.l + v3{ 0,ylen,zlen };
-  v3 a3 = box.l + v3{ 0,ylen,0 };
-
-
-  //right
-  v3 a0 = box.l + v3{ xlen,0,0};
-  v3 a1 = box.l + v3{ xlen,0,zlen };
-  v3 a2 = box.l + v3{ xlen,ylen,zlen };
-  v3 a3 = box.l + v3{ xlen,ylen,0 };
-
-  // bottom 
-  v3 a0 = box.l + v3{ 0,0,0};
-  v3 a1 = box.l + v3{ xlen,0,0};
-  v3 a2 = box.l + v3{ xlen,0,zlen};
-  v3 a3 = box.l + v3{ 0,0,zlen };
-  //top 
-  v3 a0 = box.l + v3{ 0,ylen,0};
-  v3 a1 = box.l + v3{ xlen,ylen,0};
-  v3 a2 = box.l + v3{ xlen,ylen,zlen};
-  v3 a3 = box.l + v3{ 0,ylen,zlen };
-
-}
-#endif
-
-
-void create_cube_render_data( Cube &cube ){
-  uint &vao = cube.vao;
-  uint &vbo = cube.vbo;
-  glGenVertexArrays( 1, &vao );
-  glGenBuffers( 1, &vbo );
-
-  glBindVertexArray( vao );
-  glBindBuffer( GL_ARRAY_BUFFER, vbo );
-
-  glBufferData( GL_ARRAY_BUFFER,
-                3 * sizeof(CubeVertices), 
-                NULL,
-                GL_STATIC_DRAW );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
-  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
-  glVertexAttribPointer( simple_color_shader_info.pos_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ), (void *)0 );
-
-  glEnableVertexAttribArray( simple_color_shader_info.color_id );
-  glVertexAttribPointer( simple_color_shader_info.color_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) ) );
-
-  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
-  glVertexAttribPointer( simple_color_shader_info.normal_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) * 2 ) );
-  
-  cube.vao = vao;
-  cube.vbo = vbo;
-  glBindVertexArray( 0 );
-  glBindBuffer( GL_ARRAY_BUFFER, 0 );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
-  cube_add_vertex_data( cube );
-}
-
-struct ColorQuad {
-  v3 p0,p1,p2,p3;
-  v3 color;
-  v3 n;
-};
-
-struct World {
-  
-  m4 perspective;
-
-  Camera camera;
-
-  Grid grid;
-  Cube cube;
-  
-  Line *lines;
-  ColorQuad *temp_color_quads;
-  ColorQuad *perm_color_quads;
-
-  AABB *boxes;
-  
-  uint color_vao, color_vbo, color_ebo;  
-
-  v3 *color_vertex_data;
-  uint *color_vertex_indices;
-
-  uint *index_stack; // Used as stack
-  GLenum *color_vertex_modes; // Used as stack
-};
 
 void world_draw_AABB(
     const World &w,
@@ -1218,12 +1227,46 @@ void world_draw_AABB(
   return;
 }
 
+void world_draw_grid(uint vao,const Grid &g, const m4 &mvp ){
+  glUseProgram( grid_program_info.id );
+ // Generate rectangle vertices with line vertices
+  glUniformMatrix4fv( grid_program_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(mvp) );
+  glUniform3fv( grid_program_info.corner_loc, 1,  g.rect.corner.Elements );
+  glUniform1f( grid_program_info.width_loc, g.w );
+
+  glBindVertexArray( vao );
+  glDrawArraysInstanced( GL_LINES, 0, 12, g.nlines );
+
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glUseProgram( 0 );
+}
+
+
+void world_draw_cube(uint vao, const Cube &cube, const m4 &vp ){
+  m4 model = cube.base_transform;
+  m4 mvp = vp * model;
+  glUseProgram( simple_color_shader_info.id );
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(mvp) );
+  glBindVertexArray( vao );
+  glDrawElements( GL_TRIANGLES,
+                  36,
+                  GL_UNSIGNED_INT,
+                  0  );
+  glBindVertexArray( 0 );
+  glUseProgram( 0 );
+}
+
 
 void draw_world( const World &w ){
   
   m4 vp = w.perspective*w.camera.transform();
-  draw_grid(w.grid,vp);
-  draw_cube( w.cube,vp);
+  world_draw_grid( w.grid_vao,w.grid,vp);
+  world_draw_cube( w.cube_vao, w.cube,vp);
 
   // Create line vertex data for rendering
 
@@ -1414,9 +1457,9 @@ int main(){
   glfwMakeContextCurrent( window );
   glfwSetFramebufferSizeCallback( window, resizeCallback );
   //glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
-  //glfwSetCursorPosCallback( window, mouse_callback );
-  //glfwSetMouseButtonCallback(window, mouse_button_callback);
-  //glfwSetKeyCallback( window, key_callback );
+  glfwSetCursorPosCallback( window, mouse_callback );
+  glfwSetMouseButtonCallback(window, mouse_button_callback);
+  glfwSetKeyCallback( window, key_callback );
   if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
   {
       print_error("Failed to initialize GLAD");
@@ -1475,9 +1518,11 @@ int main(){
             0.1f,
             v3{0.0f,0.0f,1.0f} );
 
-  w.perspective= HMM_Perspective(40,
-                  (float)SCREEN_WIDTH/SCREEN_HEIGHT,
+  w.perspective= HMM_Perspective(45,
+                  (float)ScreenWidth/ScreenHeight,
                   0.1f, 10.0f );
+  uint current_screen_width = ScreenWidth;
+  uint current_screen_height = ScreenHeight;
   w.camera = Camera( 
             v3{ 0.0f, 0.5f, 5.0f },
             v3{ 0.0f, 0.5f, -1.0f },
@@ -1491,8 +1536,9 @@ int main(){
   w.cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
   w.cube.color[Cube::LEFT] = v3{0.32f, 0.32f, 0.86f};
   w.cube.color[Cube::RIGHT] = v3{0.32f, 0.32f, 0.86f};
-  create_cube_render_data( w.cube );
-  create_grid_render_data( w.grid );
+
+  world_generate_cube_data(w, w.cube );
+  world_generate_grid_data(w, w.grid );
   
   w.boxes = array_allocate( AABB, 10 );
   w.lines = array_allocate( Line, 10 );
@@ -1539,6 +1585,36 @@ int main(){
                          (void *)(2 * sizeof(v3) ) );
 
   glBindVertexArray( 0 );
+#define WORLD_SET_STATE_FREE_VIEW \
+  do {\
+    w.state = World::STATE_FREE_VIEW;\
+    w.show_imgui = false;\
+    w.camera.should_rotate = true;\
+    w.camera.should_move = true;\
+    w.is_selected = false;\
+    glfwSetCursorPosCallback( window, mouse_callback );\
+  } while ( 0 )
+
+#define WORLD_SET_STATE_DETACHED\
+  do {\
+    w.state = World::STATE_DETACHED;\
+    w.show_imgui = true;\
+    w.camera.should_rotate = false;\
+    w.camera.should_move = true;\
+    w.is_selected = false;\
+    glfwSetCursorPosCallback( window, NULL );\
+  } while ( 0 )
+
+#define WORLD_SET_STATE_SELECTED\
+  do {\
+    w.state = World::STATE_SELECTED;\
+    w.show_imgui = true;\
+    w.camera.should_rotate = false;\
+    w.camera.should_move = false;\
+    glfwSetCursorPosCallback( window, NULL );\
+  } while ( 0 )
+  
+
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   int viewport[4];
   glGetIntegerv( GL_VIEWPORT, viewport);
@@ -1553,28 +1629,42 @@ int main(){
   memset( key_map, 0, 400 * sizeof(uint8) );
 
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGuiIO& io = ImGui::GetIO(); (void)io;
+  //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+  //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    //ImGui::StyleColorsClassic();
+  // Setup Dear ImGui style
+  ImGui::StyleColorsDark();
+  //ImGui::StyleColorsClassic();
 
-    // Setup Platform/Renderer bindings
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 430 core");
+  // Setup Platform/Renderer bindings
+  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  ImGui_ImplOpenGL3_Init("#version 430 core");
+  
+  bool show_imgui = false;
+  bool show_demo_window = true;
+  bool show_another_window = true;
+  ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
-    bool show_demo_window = true;
-    bool show_another_window = true;
-    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+  WORLD_SET_STATE_FREE_VIEW;
 
   while ( !glfwWindowShouldClose( window  ) ){
     float now = glfwGetTime();
     dt = now - current;
     current = now;
+    
+    if ( current_screen_width != ScreenWidth ||
+        current_screen_height != ScreenHeight )
+    {
+      w.perspective= HMM_Perspective(45,
+                  (float)ScreenWidth/ScreenHeight,
+                  0.1f, 10.0f );
+      current_screen_width = ScreenWidth;
+      current_screen_height = ScreenHeight;
+    }
+
     process_keyboard_input( window, key_map );
 
     //check camera events
@@ -1621,35 +1711,98 @@ int main(){
         }
 
         case MOUSE_LBUTTON_CLICK:
+        {
+          if ( w.state == World::STATE_SELECTED ) break;
+          glfwGetCursorPos( window, &cp[0], &cp[1] );
+          HitRecord record;
+
+          v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
+          v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
+              ScreenWidth, ScreenHeight );
+          Ray ray( camera.P, ( wp - camera.P ) );
+          if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
+            w.is_selected = record.obj_type != OBJECT_GRID;
+
+            if ( record.obj_type != OBJECT_GRID )
+              WORLD_SET_STATE_SELECTED;
+
+            switch ( record.obj_type ){
+              case OBJECT_CUBE: 
+                w.selected_object.type = record.obj_type;
+                w.selected_object.object = record.object;
+                w.selected_aabb = cube_get_AABB;
+                w.selected_move = cube_move;
+                w.selected_rotate = cube_rotate;
+                w.cube_face_dropdown = 0;
+                w.cube_face_color = ( (Cube *)record.object )->color[0];
+                break;
+              default:
+                break;
+            }
+          }
+
+        }
           break;
 #if 1
         case KB_PRESS_W: case KB_REPEAT_W:
-          camera.start_animate( 2, 0.2f ,100);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 2, 0.2f ,100);
+          } else {
+            w.selected_move( w.selected_object.object,
+                0.1f, camera.F );
+          }
           break;
 
         case KB_PRESS_S:case KB_REPEAT_S:
-          camera.start_animate( 2, -0.2f ,100);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 2, -0.2f ,100);
+          } else {
+            w.selected_move( w.selected_object.object,
+                -0.1f, camera.F );
+          }
           break;
 
         case KB_PRESS_A:case KB_REPEAT_A:
-          camera.start_animate( 0, -0.2f ,100);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 0, -0.2f ,100);
+          } else {
+            w.selected_move( w.selected_object.object,
+                -0.1f, camera.S );
+          }
           break;
 
         case KB_PRESS_D:case KB_REPEAT_D:
-          camera.start_animate( 0, 0.2f ,100);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 0, 0.2f ,100);
+          } else {
+            w.selected_move( w.selected_object.object,
+                0.1f, camera.S );
+          }
           break;
 
         case KB_PRESS_I:case KB_REPEAT_I:
-          camera.start_animate( 1, 0.2f ,300);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 1, 0.2f ,300);
+          } else {
+            w.selected_move( w.selected_object.object,
+                0.1f, camera.U );
+          }
           break;
         case KB_PRESS_K:case KB_REPEAT_K:
-          camera.start_animate( 1, -0.2f ,300);
+          if ( w.state != World::STATE_SELECTED ){
+            camera.start_animate( 1, -0.2f ,300);
+          } else {
+            w.selected_move( w.selected_object.object,
+                -0.1f, camera.U );
+          }
+          break;
+        case KB_PRESS_X: case KB_REPEAT_X:
+          show_imgui = !show_imgui;
           break;
         case KB_PRESS_T:
-          camera.toggle_move();
           break;
         case KB_PRESS_R:
-          camera.toggle_rotate();
+          WORLD_SET_STATE_DETACHED;
           break;
         case KB_PRESS_P:
           camera.print();
@@ -1708,6 +1861,27 @@ int main(){
             camera.state = Camera::STATIC;
           }
           break;
+        case KB_PRESS_ESCAPE:
+          if ( w.state == World::STATE_DETACHED ||
+               w.state == World::STATE_SELECTED )
+          {
+              WORLD_SET_STATE_FREE_VIEW;
+          } else {
+              WORLD_SET_STATE_DETACHED;
+          }
+          break;
+        case KB_PRESS_Q: case KB_REPEAT_Q:
+          if ( w.state == World::STATE_SELECTED ){
+            w.selected_rotate( w.selected_object.object, 
+                               5.0f, camera.U );
+          }
+          break;
+        case KB_PRESS_E: case KB_REPEAT_E:
+          if ( w.state == World::STATE_SELECTED ){
+            w.selected_rotate( w.selected_object.object, 
+                               -5.0f, camera.U );
+          } 
+          break;
 #endif
         default:
           break;
@@ -1720,7 +1894,7 @@ int main(){
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
 
-    if ( !camera.should_rotate ){
+    if ( w.state == World::STATE_DETACHED ){
       glfwGetCursorPos( window, &cp[0], &cp[1] );
       HitRecord record;
 
@@ -1748,62 +1922,84 @@ int main(){
       }
     }
 
+    if ( w.is_selected ){
+      array_push( w.boxes,
+          w.selected_aabb( w.selected_object.object) );
+    }
     draw_world(w);
+    if ( w.show_imgui ){
+      ImGui_ImplOpenGL3_NewFrame();
+      ImGui_ImplGlfw_NewFrame();
+      ImGui::NewFrame();
 
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
+      // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+      if ( show_demo_window ){ ImGui::ShowDemoWindow(&show_demo_window); }
 
-    // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-    ImGui::ShowDemoWindow(&show_demo_window);
+      // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
+      if ( w.is_selected ){
+        float f = 0.0f;
+        int counter = 0;
 
-    // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
-    {
-      static float f = 0.0f;
-      static int counter = 0;
+        // Create a window called "Hello, world!" and append into it.
+        ImGui::Begin("Object Properties");
 
-      // Create a window called "Hello, world!" and append into it.
-      ImGui::Begin("Hello, world!");
+        // Display some text (you can use a format strings too)
+        ImGui::Text("Change some object properties!");
 
-      // Display some text (you can use a format strings too)
-      ImGui::Text("This is some useful text.");
-      // Edit bools storing our window open/close state
-      ImGui::Checkbox("Demo Window", &show_demo_window);
-      ImGui::Checkbox("Another Window", &show_another_window);
+        const char* items[] = { 
+          "Front", "Back", "Right","Left",
+          "Up","Down"
+        };
+        ImGui::Combo("combo",
+                     &w.cube_face_dropdown,
+                     items, IM_ARRAYSIZE(items));
 
-      // Edit 1 float using a slider from 0.0f to 1.0f
-      ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
-       // Edit 3 floats representing a color
-      ImGui::ColorEdit3("clear color", (float*)&clear_color);
-      // Buttons return true when clicked (most widgets return true
-      // when edited/activated)
-      
-      if (ImGui::Button("Button"))
-          counter++;
-      ImGui::SameLine();
-      ImGui::Text("counter = %d", counter);
+        w.cube_face_color = w.cube.color[w.cube_face_dropdown];
+        ImGui::ColorEdit3("clear color",
+                          w.cube_face_color.Elements );
+        // Buttons return true when clicked (most widgets return true
+        // when edited/activated)
+        
+        if (ImGui::Button("Button"))
+            counter++;
+        ImGui::SameLine();
+        ImGui::Text("counter = %d", counter);
 
-      ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                   1000.0f / ImGui::GetIO().Framerate,
-                   ImGui::GetIO().Framerate);
-      ImGui::End();
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
+                     1000.0f / ImGui::GetIO().Framerate,
+                     ImGui::GetIO().Framerate);
+        ImGui::End();
+
+      }
+
+      // 3. Show another simple window.
+      if (show_another_window){  
+        // Pass a pointer to our bool variable
+        // (the window will have a closing button that will clear
+        // the bool when clicked)
+        ImGui::Begin("Another Window", &show_another_window);
+        ImGui::Text("Hello from another window!");
+        if (ImGui::Button("Close Me"))
+        show_another_window = false;
+        ImGui::End();
+      }
+
+      // Rendering
+      ImGui::Render();
+      ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+      switch ( w.selected_object.type ){
+        case OBJECT_CUBE:
+        {
+          Cube *cube =(Cube *)w.selected_object.object;
+          cube->color[ w.cube_face_dropdown ] = w.cube_face_color;
+          world_add_cube_vertex_data( w, *cube );
+        }
+          break;
+        default:
+          break;
+      }
     }
 
-    // 3. Show another simple window.
-    if (show_another_window){  
-      // Pass a pointer to our bool variable
-      // (the window will have a closing button that will clear
-      // the bool when clicked)
-      ImGui::Begin("Another Window", &show_another_window);
-      ImGui::Text("Hello from another window!");
-      if (ImGui::Button("Close Me"))
-      show_another_window = false;
-      ImGui::End();
-    }
-
-    // Rendering
-    ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 
     glfwSwapBuffers(window);

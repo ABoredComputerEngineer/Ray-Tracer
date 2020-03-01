@@ -37,11 +37,12 @@ bool hit_cube(
   return false;
 }
 
-AABB cube_get_AABB( const Cube &cube ){
+AABB cube_get_AABB( void *c ){
+  Cube *cube = ( Cube * )c;
   v3 min = { FLT_MAX, FLT_MAX, FLT_MAX };
   v3 max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
   for ( int i = 0; i < 8 ; i++ ){
-    v4 vertex = cube.base_transform * DefaultCubeAABBVertex[i];
+    v4 vertex = cube->base_transform * DefaultCubeAABBVertex[i];
     min.X = ( min.X < vertex.X )?min.X:vertex.X;
     min.Y = ( min.Y < vertex.Y )?min.Y:vertex.Y;
     min.Z = ( min.Z < vertex.Z )?min.Z:vertex.Z;
@@ -51,7 +52,9 @@ AABB cube_get_AABB( const Cube &cube ){
     max.Z = ( max.Z > vertex.Z )?max.Z:vertex.Z;
   }
 
-  return AABB( min, max );
+
+  cube->bounds = AABB( min, max );
+  return cube->bounds;
 }
 
 Cube create_cube_one_color( float len, v3 pos, v3 color )
@@ -63,19 +66,10 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   for ( int i = 0; i < 6; i++ ){
     cube.color[i] = color;
   }
-  uint vao, vbo;
   cube.base_transform = HMM_Translate(pos) *
                         HMM_Scale( v3{ len, len, len } ); 
-#if 0
-  const f32 sqrt3 = HMM_SquareRootF( 3 );
-  AABB bound =  AABB( 
-                  sqrt3*len* v3{ -0.5f, -0.5f, -0.5f },
-                  sqrt3*len* v3{ 0.5f, 0.5f, 0.5f }
-                 );
-  bound.l += cube.pos;
-  bound.u += cube.pos;
-#endif
-  cube.bounds = cube_get_AABB( cube );
+  cube.orientation = HMM_QuaternionFromAxisAngle( v3{1.0f,1.0f,1.0f}, 0.0f );
+  cube.bounds = cube_get_AABB( &cube );
   return cube;
 }
 

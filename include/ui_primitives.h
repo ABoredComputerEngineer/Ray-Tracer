@@ -45,12 +45,22 @@ union AABB{
 
 };
 
+typedef AABB (*GetAABBFunc)( void *obj );
+typedef void (*MoveFunc)( void *obj, float t, v3 dir );
+typedef void (*RotateFunc)( void *obj, float deg, v3 axis );
+
 enum ObjectType {
   OBJECT_SPHERE,
   OBJECT_CUBE,
   OBJECT_GRID,
   OBJECT_AARECT
 };
+struct Object {
+  ObjectType type;
+  void *object;
+};
+
+
 struct HitRecord{
   float t;
   v3 p;
@@ -143,10 +153,6 @@ struct AARect{
   }
 };
 
-struct Object {
-  ObjectType type;
-  void *object;
-};
 bool AABB_hit( 
     const AABB &box,
     const Ray &ray,

@@ -17,7 +17,6 @@ struct Grid {
   v3 color;
   int32 nlines;
 
-  uint vao, vbo, ebo;
 };
 
 
@@ -51,10 +50,6 @@ struct Cube {
     TOP,
     BOT
   };
-  // Render Info
-  uint vao,vbo;
-  uint program;
-
   CubeState state;
   TranslateAnimation tanim;
   RotateAnimation ranim;
@@ -84,6 +79,27 @@ bool hit_grid(
     const Ray &ray,
     float tmin, float tmax,
     HitRecord &record );
+
+inline void cube_move( void *c, float t, v3 dir ){
+  Cube *cube = (Cube *)c;
+  cube->pos += t * dir;
+  cube->base_transform = HMM_Translate(cube->pos) *
+                         HMM_QuaternionToMat4( cube->orientation ) *
+                        HMM_Scale( v3{ cube->length,
+                            cube->length, cube->length } ); 
+}
+
+inline void cube_rotate( void *c, float deg, v3 axis ){
+  q4 quat = HMM_QuaternionFromAxisAngle( axis, HMM_RADIANS(deg) );
+  Cube *cube = (Cube *)c;
+  cube->orientation = HMM_MultiplyQuaternion(quat, cube->orientation);
+  cube->base_transform = HMM_Translate(cube->pos) *
+                         HMM_QuaternionToMat4( cube->orientation ) *
+                        HMM_Scale( v3{ cube->length,
+                            cube->length, cube->length } ); 
+}
+
+AABB cube_get_AABB( void *cube );
 
 v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v );
 Cube create_cube_one_color( float len, v3 pos, v3 color );
