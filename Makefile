@@ -4,16 +4,27 @@ INC = ./include
 LIBS = ./libs
 SRC = ./src
 CC = g++
-DBFLAGS = -g3 -gdwarf-2 -msse -msse2 -msse3 -Wall
+
+DBFLAGS = -g3 -gdwarf-2 -msse -msse2 -msse3 -Wall\
+					-DIMGUI_IMPL_OPENGL_LOADER_GLAD
 OFLAGS = -O3 -msse -msse2 -msse3 -Wall
-LIBFLAGS = -lglfw3 -lGL -lX11 -ldl -lpthread -lXi -lXrandr -lm
+LIBFLAGS = `pkg-config --static --libs glfw3`
 BIN = ./bin
 HEADER_FILES = $(SRC)/*.h
 OBJS = main.o common.o
-UI_OBJS = ui.o common.o glad.o ui_objects.o HandmadeMath.o ui_primitives.o
+
+UI_CORE_OBJS := glad.o ui.o HandmadeMath.o ui_primitives.o ui_objects.o common.o
+
+DIMGUI_OBJS := imgui.o imgui_demo.o imgui_draw.o imgui_impl_opengl3.o\
+							imgui_widgets.o imgui_impl_glfw.o 
+
+UI_OBJS += $(UI_CORE_OBJS)
+UI_OBJS += $(DIMGUI_OBJS)
 
 FULL_OBJS = $(addprefix $(BIN)/, $(OBJS) )
 FULL_UI_OBJS = $(addprefix $(BIN)/, $(UI_OBJS) )
+
+FULL_UI_CORE_OBJS = $(addprefix $(BIN)/, $(UI_CORE_OBJS) )
 
 .PHONY: run display
 
@@ -39,4 +50,4 @@ $(BIN)/%.o: $(SRC)/%.cpp
 $(BIN)/%.o: $(SRC)/%.c
 	$(CC) $< $(DBFLAGS) -I $(INC) -c -o $@
 clean:
-	rm -rf ./bin/*
+	rm -rf $(FULL_UI_CORE_OBJS)

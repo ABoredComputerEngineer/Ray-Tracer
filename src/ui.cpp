@@ -2,6 +2,11 @@
 #define HANDMADE_MATH_IMPLEMENTATION
 #include <stdio.h>
 #include <cstdlib>
+
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include "common.h"
@@ -1409,9 +1414,9 @@ int main(){
   glfwMakeContextCurrent( window );
   glfwSetFramebufferSizeCallback( window, resizeCallback );
   //glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
-  glfwSetCursorPosCallback( window, mouse_callback );
-  glfwSetMouseButtonCallback(window, mouse_button_callback);
-  glfwSetKeyCallback( window, key_callback );
+  //glfwSetCursorPosCallback( window, mouse_callback );
+  //glfwSetMouseButtonCallback(window, mouse_button_callback);
+  //glfwSetKeyCallback( window, key_callback );
   if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
   {
       print_error("Failed to initialize GLAD");
@@ -1546,6 +1551,25 @@ int main(){
 
   uint8 *key_map = (uint8 *)malloc( sizeof(uint8) * 400 );
   memset( key_map, 0, 400 * sizeof(uint8) );
+
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    //ImGui::StyleColorsClassic();
+
+    // Setup Platform/Renderer bindings
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 430 core");
+
+    bool show_demo_window = true;
+    bool show_another_window = true;
+    ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
   while ( !glfwWindowShouldClose( window  ) ){
     float now = glfwGetTime();
@@ -1696,7 +1720,6 @@ int main(){
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
 
-
     if ( !camera.should_rotate ){
       glfwGetCursorPos( window, &cp[0], &cp[1] );
       HitRecord record;
@@ -1726,6 +1749,63 @@ int main(){
     }
 
     draw_world(w);
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
+    ImGui::ShowDemoWindow(&show_demo_window);
+
+    // 2. Show a simple window that we create ourselves. We use a Begin/End pair to created a named window.
+    {
+      static float f = 0.0f;
+      static int counter = 0;
+
+      // Create a window called "Hello, world!" and append into it.
+      ImGui::Begin("Hello, world!");
+
+      // Display some text (you can use a format strings too)
+      ImGui::Text("This is some useful text.");
+      // Edit bools storing our window open/close state
+      ImGui::Checkbox("Demo Window", &show_demo_window);
+      ImGui::Checkbox("Another Window", &show_another_window);
+
+      // Edit 1 float using a slider from 0.0f to 1.0f
+      ImGui::SliderFloat("float", &f, 0.0f, 1.0f);
+       // Edit 3 floats representing a color
+      ImGui::ColorEdit3("clear color", (float*)&clear_color);
+      // Buttons return true when clicked (most widgets return true
+      // when edited/activated)
+      
+      if (ImGui::Button("Button"))
+          counter++;
+      ImGui::SameLine();
+      ImGui::Text("counter = %d", counter);
+
+      ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
+                   1000.0f / ImGui::GetIO().Framerate,
+                   ImGui::GetIO().Framerate);
+      ImGui::End();
+    }
+
+    // 3. Show another simple window.
+    if (show_another_window){  
+      // Pass a pointer to our bool variable
+      // (the window will have a closing button that will clear
+      // the bool when clicked)
+      ImGui::Begin("Another Window", &show_another_window);
+      ImGui::Text("Hello from another window!");
+      if (ImGui::Button("Close Me"))
+      show_another_window = false;
+      ImGui::End();
+    }
+
+    // Rendering
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+
     glfwSwapBuffers(window);
     glfwPollEvents();
     array_clear( w.color_vertex_data );
