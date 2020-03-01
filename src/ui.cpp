@@ -11,11 +11,10 @@
 #include <stb_image.h>
 #include "HandmadeMath.h"
 #include "ui_primitives.h"
+#include "ui_objects.h"
 
 
 typedef GLuint guint;
-typedef unsigned int uint;
-typedef float f32;
 
 #define SCREEN_WIDTH  800
 #define SCREEN_HEIGHT 600
@@ -103,16 +102,7 @@ static float CubeNormals[] = {
     0.0f, -1.0f, 0.0f,
 };
 
-static v4 DefaultCubeAABBVertex[] = {
-  v4{ 0.5f, 0.5f, 0.5f, 1.0f },
-  v4{ -0.5f, 0.5f, 0.5f,1.0f },
-  v4{ -0.5f, -0.5f, 0.5f,1.0f },
-  v4{ 0.5f, -0.5f, 0.5f, 1.0f},
-  v4{ 0.5f, 0.5f, -0.5f, 1.0f },
-  v4{ -0.5f, 0.5f, -0.5f, 1.0f },
-  v4{ -0.5f, -0.5f, -0.5f,1.0f },
-  v4{ 0.5f, -0.5f, -0.5f, 1.0f }
-};
+
 
 struct Camera {
   union {
@@ -792,9 +782,6 @@ void flipImage( uint8 *data, int width, int height){
 
 
 
-struct Line {
-  v3 start, end,color;
-};
 
 struct LineVertexBufferData{
   v3 p;
@@ -835,20 +822,6 @@ void draw_color_line( v3 start ,v3 end, v3 color ){
 void draw_color_vertex( const m4 &mvp ){
 }
 
-Line create_line( const v3 &start, const v3 &end, const v3 &color ){
-  Line l = { start, end };
-  l.color = color;
-  return l;
-}
-
-Line create_line_from_ray( const Ray &r, f32 len, const v3 &color ){
-  Line l;
-  l.start = r.start;
-  l.end = r.point_at( len );
-  l.color= color;
-  return l;
-}
-
 struct GridProgramInfo{
   uint id;
   uint mvp_loc;
@@ -867,22 +840,6 @@ struct SimpleColorShaderProgram {
   uint8 pos_id;
   uint8 color_id;
   uint8 normal_id;
-};
-
-struct Grid {
-  AARect rect;
-  Line l1, l2;
-  v3 dir1, dir2;  
-  f32 w; // width
-  f32 unit_u;
-  f32 unit_v;
-  v3 color;
-  int32 nlines;
-
-  uint vao, vbo, ebo;
-  LineVertexBufferData *data;
-  uint line_buff_len;
-  uint line_buff_cap;
 };
 
 
@@ -933,48 +890,8 @@ int create_simple_color_shader_program( ){
 }
 
 
-
-Grid create_grid(
-    AARect::RectType type,
-    const AABB &b,
-    f32 d,
-    f32 width,
-    const v3 &color )
-{
-  Grid g;
-  g.rect = AARect( type, d, b, 0 ); 
-  g.w = width;
-  g.color = color;
-  switch ( type ){
-    case AARect::PLANE_XY:
-     g.dir1 = v3{ 1.0f, 0.0f, 0.0f };
-     g.dir2 = v3{ 0.0f, 1.0f, 0.0f };
-      break;
-    case AARect::PLANE_YZ:
-     g.dir1 = v3{ 0.0f, 1.0f, 0.0f };
-     g.dir2 = v3{ 0.0f, 0.0f, 1.0f };
-      break;
-    case AARect::PLANE_ZX:
-     g.dir1 = v3{ 0.0f, 0.0f, 1.0f };
-     g.dir2 = v3{ 1.0f, 0.0f, 0.0f };
-      break;
-    default:
-      print_error( "Unknown Case!\n" );
-      break;
-  }
-
-  f32 x = g.rect.bounds.u[ g.rect.d0 ];
-  f32 y = g.rect.bounds.l[ g.rect.d0 ];
-
-  f32 z = g.rect.bounds.u[ g.rect.d1 ];
-  f32 w = g.rect.bounds.l[ g.rect.d1 ];
-
-  // u is along rect.d0, v is along rect.d1
-  g.unit_u = g.w / ( x - y );
-  g.unit_v = g.w / ( z - w );
-
-
-  g.nlines = Float2Int( ( g.rect.bounds.u[g.rect.d0]-g.rect.bounds.l[g.rect.d0] )/width );
+void create_grid_render_data( Grid &g ){
+  const v3 &color = g.color;
   glGenVertexArrays(1,&g.vao);
   glGenBuffers(1,&g.vbo);
   f32 len = 100.0f;
@@ -1027,31 +944,8 @@ Grid create_grid(
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
-  return g;
 }
 
-
-bool hit_grid(
-    const Grid &g,
-    const Ray &ray,
-    float tmin, float tmax,
-    HitRecord &record )
-{
-  if ( hit_AARect( g.rect, ray, tmin, tmax, record ) ){
-    record.obj_type = OBJECT_GRID;
-    record.object = (void *)&g;
-    return true;
-  }
-  return false;
-}
-
-v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v ){
-  int32 nu = Float2Int( u / grid.unit_u );
-  int32 nv = Float2Int( v / grid.unit_v );
-  return grid.rect.corner +
-         nu*grid.w*grid.dir1 +
-         nv*grid.w*grid.dir2;
-}
 
 
 void draw_grid( const Grid &g, const m4 &mvp ){
@@ -1071,90 +965,6 @@ void draw_grid( const Grid &g, const m4 &mvp ){
   glUseProgram( 0 );
 }
 
-enum CubeState {
-  CUBE_ANIMATING,
-  CUBE_STATIC
-};
-
-struct TranslateAnimation {
-  v3 start;
-  v3 end;
-};
-
-struct RotateAnimation {
-  q4 start;
-  q4 end;
-  float t;
-  uint duration;
-  uint elapsed;
-  float angle;
-  m4 rot;
-};
-
-struct Cube {
-
-  enum Faces {
-    FRONT = 0,
-    BACK,
-    RIGHT,
-    LEFT,
-    TOP,
-    BOT
-  };
-  // Render Info
-  uint vao,vbo;
-  uint program;
-
-  CubeState state;
-  TranslateAnimation tanim;
-  RotateAnimation ranim;
-
-  AABB bounds;
-
-  m4 base_transform;
-  v3 pos;
-  f32 length;
-
-  q4 orientation;
-  f32 angle;
-
-  union {
-    v3 color[6];
-  };
-
-};
-
-
-bool hit_cube(
-    const Cube &c,
-    const Ray &ray,
-    float tmin, float tmax,
-    HitRecord &record )
-{
-  if ( AABB_hit( c.bounds, ray, tmin, tmax, record ) ){
-    record.obj_type = OBJECT_CUBE;
-    record.object = (void *)&c;
-    return true;
-  }
-  return false;
-}
-
-AABB cube_get_AABB( const Cube &cube ){
-  v3 min = { FLT_MAX, FLT_MAX, FLT_MAX };
-  v3 max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
-  for ( int i = 0; i < 8 ; i++ ){
-    v4 vertex = cube.base_transform * DefaultCubeAABBVertex[i];
-    min.X = ( min.X < vertex.X )?min.X:vertex.X;
-    min.Y = ( min.Y < vertex.Y )?min.Y:vertex.Y;
-    min.Z = ( min.Z < vertex.Z )?min.Z:vertex.Z;
-
-    max.X = ( max.X > vertex.X )?max.X:vertex.X;
-    max.Y = ( max.Y > vertex.Y )?max.Y:vertex.Y;
-    max.Z = ( max.Z > vertex.Z )?max.Z:vertex.Z;
-  }
-
-  return AABB( min, max );
-}
 
 void draw_cube( const Cube &cube, const m4 &vp ){
   m4 model = cube.base_transform;
@@ -1239,30 +1049,9 @@ void AABB_generate_vertex( const AABB &box, v3 *mem ){
 #endif
 
 
-Cube create_cube_one_color( float len, v3 pos, v3 color )
-{
-
-  Cube cube;
-  cube.pos = pos;
-  cube.length = len;
-  for ( int i = 0; i < 6; i++ ){
-    cube.color[i] = color;
-  }
-  uint vao, vbo;
-  cube.base_transform = HMM_Translate(pos) *
-                        HMM_Scale( v3{ len, len, len } ); 
-#if 0
-  const f32 sqrt3 = HMM_SquareRootF( 3 );
-  AABB bound =  AABB( 
-                  sqrt3*len* v3{ -0.5f, -0.5f, -0.5f },
-                  sqrt3*len* v3{ 0.5f, 0.5f, 0.5f }
-                 );
-  bound.l += cube.pos;
-  bound.u += cube.pos;
-#endif
-  cube.bounds = cube_get_AABB( cube );
-
-
+void create_cube_render_data( Cube &cube ){
+  uint &vao = cube.vao;
+  uint &vbo = cube.vbo;
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
 
@@ -1298,9 +1087,8 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   cube.vbo = vbo;
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
-
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
   cube_add_vertex_data( cube );
-  return cube;
 }
 
 struct ColorQuad {

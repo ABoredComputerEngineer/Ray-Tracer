@@ -28,6 +28,7 @@ typedef int32_t int32;
 typedef unsigned int uint;
 typedef uint8_t uint8;
 typedef ptrdiff_t ptrdiff;
+typedef float f32;
 
 #define TOLERANCE 0.000001f
 struct BufferContext {

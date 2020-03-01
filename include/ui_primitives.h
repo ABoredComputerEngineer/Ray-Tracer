@@ -2,6 +2,7 @@
 #define UI_PRIMITIVES_H
 #include <float.h>
 #include "HandmadeMath.h"
+#include "common.h"
 struct Ray {
   v3 start;
   v3 direction;
@@ -246,5 +247,35 @@ bool hit_AARect(
   record.t = t;
   return true;
 
+}
+
+AABB AABB_union( AABB box, v3 v ){
+  v3 lower = {
+    MIN( box.l[0], v[0] ),
+    MIN( box.l[1], v[1] ),
+    MIN( box.l[2], v[2] ),
+  };
+
+  v3 upper = {
+    MAX( box.u[0], v[0] ),
+    MAX( box.u[1], v[1] ),
+    MAX( box.u[2], v[2] ),
+  };
+  return AABB( lower, upper );
+}
+
+AABB AABB_union( AABB b1, AABB b2 ){
+  v3 lower = {
+    MIN( b1.l[0], b2.l[0] ),
+    MIN( b1.l[1], b2.l[1] ),
+    MIN( b1.l[2], b2.l[2] ),
+  };
+
+  v3 upper = {
+    MAX( b1.u[0], b2.u[0] ),
+    MAX( b1.u[1], b2.u[1] ),
+    MAX( b1.u[2], b2.u[2] ),
+  };
+  return AABB( lower, upper );
 }
 #endif
