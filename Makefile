@@ -10,7 +10,7 @@ LIBFLAGS = -lglfw3 -lGL -lX11 -ldl -lpthread -lXi -lXrandr -lm
 BIN = ./bin
 HEADER_FILES = $(SRC)/*.h
 OBJS = main.o common.o
-UI_OBJS = ui.o common.o glad.o ui_objects.o HandmadeMath.o
+UI_OBJS = ui.o common.o glad.o ui_objects.o HandmadeMath.o ui_primitives.o
 
 FULL_OBJS = $(addprefix $(BIN)/, $(OBJS) )
 FULL_UI_OBJS = $(addprefix $(BIN)/, $(UI_OBJS) )

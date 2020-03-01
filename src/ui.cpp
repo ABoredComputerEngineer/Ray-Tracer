@@ -1486,7 +1486,8 @@ int main(){
   w.cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
   w.cube.color[Cube::LEFT] = v3{0.32f, 0.32f, 0.86f};
   w.cube.color[Cube::RIGHT] = v3{0.32f, 0.32f, 0.86f};
-  cube_add_vertex_data( w.cube );
+  create_cube_render_data( w.cube );
+  create_grid_render_data( w.grid );
   
   w.boxes = array_allocate( AABB, 10 );
   w.lines = array_allocate( Line, 10 );
