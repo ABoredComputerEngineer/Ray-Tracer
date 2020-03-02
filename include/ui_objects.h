@@ -44,11 +44,11 @@ struct Cube {
 
   enum Faces {
     FRONT = 0,
-    BACK,
-    RIGHT,
-    LEFT,
-    TOP,
-    BOT
+    BACK = 1,
+    RIGHT = 2,
+    LEFT = 3,
+    TOP = 4,
+    BOT = 5
   };
   CubeState state;
   TranslateAnimation tanim;
@@ -68,8 +68,15 @@ struct Cube {
   };
 
 };
+
 bool hit_cube(
     const Cube &c,
+    const Ray &ray,
+    float tmin, float tmax,
+    HitRecord &record );
+
+bool hit_sphere(
+    const Sphere &s,
     const Ray &ray,
     float tmin, float tmax,
     HitRecord &record );
@@ -80,26 +87,61 @@ bool hit_grid(
     float tmin, float tmax,
     HitRecord &record );
 
-inline void cube_move( void *c, float t, v3 dir ){
+inline void cube_move( void *c, float t, v3 dir, m4 &model ){
   Cube *cube = (Cube *)c;
   cube->pos += t * dir;
-  cube->base_transform = HMM_Translate(cube->pos) *
+  model = HMM_Translate(cube->pos) *
+                         HMM_QuaternionToMat4( cube->orientation ) *
+                        HMM_Scale( v3{ cube->length,
+                            cube->length, cube->length } ); 
+}
+inline void cube_scale( void *c, v3 dir, m4 &model ){
+  Cube *cube = (Cube *)c;
+  cube->length = dir.X;
+  model = HMM_Translate(cube->pos) *
                          HMM_QuaternionToMat4( cube->orientation ) *
                         HMM_Scale( v3{ cube->length,
                             cube->length, cube->length } ); 
 }
 
-inline void cube_rotate( void *c, float deg, v3 axis ){
+inline void cube_rotate( void *c, float deg, v3 axis, m4 &model ){
   q4 quat = HMM_QuaternionFromAxisAngle( axis, HMM_RADIANS(deg) );
   Cube *cube = (Cube *)c;
   cube->orientation = HMM_MultiplyQuaternion(quat, cube->orientation);
+  model = HMM_Translate(cube->pos) *
+                         HMM_QuaternionToMat4( cube->orientation ) *
+                        HMM_Scale( v3{ cube->length,
+                            cube->length, cube->length } ); 
+}
+
+
+inline void sphere_move( void *s, float t, v3 dir, m4 &model ){
+  Sphere *sphere = ( Sphere *)s;
+  sphere->c += t * dir;
+  model = HMM_Translate(sphere->c) *
+                        HMM_Scale( v3{ sphere->r,
+                            sphere->r, sphere->r } );
+}
+
+inline void sphere_scale( void *s, v3 dim, m4 &model ){
+  Sphere *sphere = ( Sphere *)s;
+  sphere->r = dim.X;
+  model = HMM_Translate(sphere->c) *
+                        HMM_Scale( v3{ sphere->r,
+                            sphere->r, sphere->r } );
+}
+inline void sphere_rotate( void *s, float deg, v3 axis, m4 &model ){
+  return;
+}
+
+inline void cube_update_matrix( Cube *cube ){
   cube->base_transform = HMM_Translate(cube->pos) *
                          HMM_QuaternionToMat4( cube->orientation ) *
                         HMM_Scale( v3{ cube->length,
                             cube->length, cube->length } ); 
 }
 
-AABB cube_get_AABB( void *cube );
+AABB cube_get_AABB( void *cube, const m4 &model );
 
 v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v );
 Cube create_cube_one_color( float len, v3 pos, v3 color );

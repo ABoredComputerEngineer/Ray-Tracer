@@ -45,19 +45,24 @@ union AABB{
 
 };
 
-typedef AABB (*GetAABBFunc)( void *obj );
-typedef void (*MoveFunc)( void *obj, float t, v3 dir );
-typedef void (*RotateFunc)( void *obj, float deg, v3 axis );
+typedef AABB (*GetAABBFunc)( void *obj, const m4 &model );
+typedef void (*TranslateFunc)( void *obj, float t, v3 dir, m4 &m );
+typedef void (*RotateFunc)( void *obj, float deg, v3 axis, m4 &m );
+typedef void (*ScaleFunc)( void *obj, v3 scale, m4 &m );
 
 enum ObjectType {
-  OBJECT_SPHERE,
-  OBJECT_CUBE,
+  OBJECT_SPHERE = 0,
+  OBJECT_CUBE_INSTANCE,
   OBJECT_GRID,
-  OBJECT_AARECT
+  OBJECT_AARECT,
+  _OBJECT_MAX
 };
 struct Object {
   ObjectType type;
-  void *object;
+  union {
+    void *object;
+    uint index;
+  };
 };
 
 
@@ -67,8 +72,7 @@ struct HitRecord{
   v3 n;
   float u,v;
   
-  ObjectType obj_type;
-  void *object;
+  Object obj;
 
   void print( ){
     fprintf( stdout, "Hit Record Info\n" );
@@ -84,18 +88,25 @@ struct Sphere {
   v3 c;
   float r;
   AABB box;
-  Sphere ( v3 center, float radius ):c(center), r(radius){}
+  Sphere ( v3 center, float radius ):c(center), r(radius){
+    v3 rad = { r,r,r, };
+    box = AABB( c - rad, c + rad );
+  }
 };
-
+#if 0
 inline AABB sphere_aabb( const Sphere &sph ){
   v3 r = { sph.r, sph.r, sph.r };
   return AABB( sph.c - r, sph.c + r );
 }
+#endif
 
-inline AABB sphere_aabb( Sphere *sph ){
+inline AABB sphere_aabb( void *s, const m4 &m ){
+  Sphere *sph = ( Sphere * )s;
   v3 r = { sph->r, sph->r, sph->r };
-  return AABB( sph->c - r, sph->c + r );
+  sph->box = AABB( sph->c - r, sph->c + r );
+  return sph->box;
 }
+
 struct Plane {
   v3 p;
   v3 n;

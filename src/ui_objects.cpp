@@ -29,20 +29,15 @@ bool hit_cube(
     float tmin, float tmax,
     HitRecord &record )
 {
-  if ( AABB_hit( c.bounds, ray, tmin, tmax, record ) ){
-    record.obj_type = OBJECT_CUBE;
-    record.object = (void *)&c;
-    return true;
-  }
-  return false;
+  return AABB_hit( c.bounds, ray, tmin, tmax, record );
 }
 
-AABB cube_get_AABB( void *c ){
+AABB cube_get_AABB( void *c, const m4 &m ){
   Cube *cube = ( Cube * )c;
   v3 min = { FLT_MAX, FLT_MAX, FLT_MAX };
   v3 max = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
   for ( int i = 0; i < 8 ; i++ ){
-    v4 vertex = cube->base_transform * DefaultCubeAABBVertex[i];
+    v4 vertex = m* DefaultCubeAABBVertex[i];
     min.X = ( min.X < vertex.X )?min.X:vertex.X;
     min.Y = ( min.Y < vertex.Y )?min.Y:vertex.Y;
     min.Z = ( min.Z < vertex.Z )?min.Z:vertex.Z;
@@ -69,7 +64,7 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   cube.base_transform = HMM_Translate(pos) *
                         HMM_Scale( v3{ len, len, len } ); 
   cube.orientation = HMM_QuaternionFromAxisAngle( v3{1.0f,1.0f,1.0f}, 0.0f );
-  cube.bounds = cube_get_AABB( &cube );
+  cube.bounds = cube_get_AABB( &cube, cube.base_transform );
   return cube;
 }
 
@@ -123,12 +118,7 @@ bool hit_grid(
     float tmin, float tmax,
     HitRecord &record )
 {
-  if ( hit_AARect( g.rect, ray, tmin, tmax, record ) ){
-    record.obj_type = OBJECT_GRID;
-    record.object = (void *)&g;
-    return true;
-  }
-  return false;
+  return hit_AARect( g.rect, ray, tmin, tmax, record );
 }
 
 v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v ){
@@ -138,4 +128,37 @@ v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v ){
          nu*grid.w*grid.dir1 +
          nv*grid.w*grid.dir2;
 }
+
+bool hit_sphere(
+    const Sphere &sph,
+    const Ray &ray,
+    float tmin, float tmax,
+    HitRecord &record )
+{
+  v3 v = ray.start - sph.c;
+  float b = 2 * HMM_DotVec3( ray.direction, v );
+  float a = HMM_DotVec3( ray.direction, ray.direction );
+  float c = HMM_DotVec3( v,v ) - sph.r*sph.r;
+
+  float dis = b * b - 4 * a * c;
+  if ( dis > 0 ){
+    float t = ( -b-sqrt( dis ) )/(2.0f*a);
+    if ( t > tmin && t < tmax ){
+      record.t = t;
+      record.p = ray.point_at( t );
+      record.n = HMM_NormalizeVec3( record.p - sph.c );
+      return true;
+    }
+
+    t = ( -b+sqrt( dis ) )/(2.0f*a);
+    if ( t > tmin && t < tmax ){
+      record.t = t;
+      record.p = ray.point_at( t );
+      record.n = HMM_NormalizeVec3( record.p - sph.c );
+      return true;
+    }
+  }
+  return false;
+}
+
 
