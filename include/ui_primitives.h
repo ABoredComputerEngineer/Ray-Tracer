@@ -55,6 +55,7 @@ enum ObjectType {
   OBJECT_CUBE_INSTANCE,
   OBJECT_GRID,
   OBJECT_AARECT,
+  OBJECT_RECT,
   _OBJECT_MAX
 };
 struct Object {

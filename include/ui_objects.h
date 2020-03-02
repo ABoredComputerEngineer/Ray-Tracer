@@ -151,3 +151,60 @@ Grid create_grid(
     f32 d,
     f32 width,
     const v3 &color );
+
+
+struct Rectangle {
+  v3 p0,p1,p2,p3; //four points 
+  v3 s1, s2; // two unit vectors
+  v3 n; // unit normal vector
+
+  f32 l1,l2; // length along s1 and s2 resp
+  q4 orientation;
+  AABB box;
+};
+
+AABB rectangle_AABB( void *rect, const m4 &m );
+
+inline void rectangle_move( void *rect, float t, v3 dir, m4 &m ){
+  Rectangle &r = *(Rectangle *)rect;
+  r.p0 += t *dir;
+  r.p1 += t *dir;
+  r.p2 += t *dir;
+  r.p3 += t *dir;
+  
+  m = HMM_QuaternionToMat4( r.orientation );
+}
+
+inline void rectangle_scale( void *c, v3 dir, m4 &model ){
+  return;
+}
+
+v3 rotate_vector_by_quaternion(const v3& v, const q4& q);
+
+v3 rotate_point_by_quaternion( const v3 &p,const v3 &about, const q4 &q );
+
+
+
+inline void rectangle_rotate( void *c, float deg, v3 axis, m4 &model ){
+  q4 quat = HMM_QuaternionFromAxisAngle( axis, HMM_RADIANS(deg) );
+  Rectangle &r = *(Rectangle *)c;
+  v3 rect_mid =  r.p0 + (r.l1/2)*r.s1 + (r.l2/2)*r.s2 ;
+  r.p0 = rotate_point_by_quaternion( r.p0, rect_mid, quat );
+  r.s1 = rotate_vector_by_quaternion( r.s1, quat );
+  r.s2 = rotate_vector_by_quaternion( r.s2, quat );
+
+  r.p1 = r.p0 + r.l1 * r.s1;
+  r.p2 = r.p0 + r.l1 * r.s1 + r.l2 * r.s2;
+  r.p3 = r.p0 + r.l2 * r.s2;
+
+  r.n = HMM_NormalizeVec3( HMM_Cross( r.s1,r.s2 ) );
+}
+
+
+Rectangle create_rectangle( v3 p0 );
+bool hit_rect(
+    Rectangle &r,
+    const Ray &ray,
+    float tmin,
+    float tmax,
+    HitRecord &record );

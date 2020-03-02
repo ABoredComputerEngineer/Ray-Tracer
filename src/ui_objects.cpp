@@ -161,4 +161,93 @@ bool hit_sphere(
   return false;
 }
 
+AABB rectangle_AABB( void *rect, const m4 &m ){
+  Rectangle &r = *( Rectangle * )rect;
+  v3 z[4] = { r.p0, r.p1, r.p2, r.p3 };
+  
+  v3 min = {FLT_MAX,FLT_MAX,FLT_MAX};
+  v3 max = {-FLT_MAX,-FLT_MAX,-FLT_MAX};
+  for ( uint i = 0; i < 4; i++ ){
+    v3 p = z[i];
+    min.X = ( min.X > p.X )?p.X:min.X;
+    min.Y = ( min.Y > p.Y )?p.Y:min.Y;
+    min.Z = ( min.Z > p.Z )?p.Z:min.Z;
 
+    max.X = ( max.X < p.X )?p.X:max.X;
+    max.Y = ( max.Y < p.Y )?p.Y:max.Y;
+    max.Z = ( max.Z < p.Z )?p.Z:max.Z;
+  }
+  for ( uint i = 0; i < 3; i++ ){
+    if ( fabs( min[i]-max[i] ) < TOLERANCE ){
+      min[i] -= 0.01f;
+      max[i] += 0.01f;
+    }
+  }
+  r.box = AABB( min, max );
+  return r.box;
+}
+v3 rotate_vector_by_quaternion(const v3& v, const q4& q){
+    // extract the vector part of the quaternion
+    v3 u = q.XYZ; 
+    // Extract the scalar part of the quaternion
+    f32 s = q.W;
+
+    return 2.0f * HMM_DotVec3(u, v) * u
+          + (s*s - HMM_DotVec3(u, u)) * v
+          + 2.0f * s * HMM_Cross(u, v);
+}
+
+v3 rotate_point_by_quaternion( const v3 &p,const v3 &about, const q4 &q ){
+  v3 dir = p - about;
+  v3 x = rotate_vector_by_quaternion( dir, q );
+  return x + about;
+}
+
+
+Rectangle create_rectangle( v3 p0 ) {
+  Rectangle rect = {};
+  rect.p0 = p0;
+  rect.n = v3{0.0f,1.0f,0.0f};
+  rect.s1 = v3{1.0f,0.0f,0.0f};
+  rect.s2 = v3{0.0f,0.0f,1.0f};
+  rect.l1 = 1.0f;
+  rect.l2 = 1.0f;
+  rect.p1 = rect.p0 + rect.l1 * rect.s1;
+  rect.p2 = rect.p0 + rect.l1 * rect.s1 + rect.l2 * rect.s2;
+  rect.p3 = rect.p0 + rect.l2 * rect.s2;
+
+  rect.orientation = { 0, 1, 1,1 };
+  
+  rect.box = rectangle_AABB( &rect, HMM_Mat4d(1.0f) );
+  return rect;
+}
+
+bool hit_rect(
+    Rectangle &r,
+    const Ray &ray,
+    float tmin,
+    float tmax,
+    HitRecord &record )
+{
+  float d = ( HMM_DotVec3( ray.direction, r.n ) );
+  if ( fabs( d ) < TOLERANCE )
+    return false;
+  v3 temp = r.p0 - ray.start;
+  float t = HMM_DotVec3( temp, r.n )/d ;
+  if ( t > tmin && t < tmax ){
+    fprintf( stdout, "Intersecting plane!\n" );
+    v3 point = ray.point_at( t );
+    v3 t1 = point - r.p0;
+    f32 d1 = HMM_DotVec3( r.s1, t1 );
+    f32 d2 = HMM_DotVec3( r.s2, t1 );
+
+    if ( ( d1 > 0 && d1 < r.l1 ) && ( d2 > 0 && d2 < r.l2 ) ){
+
+    fprintf( stdout, "Intersecting Rectangle!\n\n" );
+      return true;
+    }
+    fprintf( stdout, "Not Intersecting Rectangle!\n\n" );
+    return false;  
+  }
+  return false;
+}

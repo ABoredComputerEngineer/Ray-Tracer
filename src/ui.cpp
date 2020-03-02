@@ -1050,8 +1050,8 @@ struct World {
   Cube cube;
 
   Cube *cubes;
-  AARect *rects;
   Sphere *spheres;
+  Rectangle *rects;
   
   Line *lines;
   ColorQuad *temp_color_quads;
@@ -1081,6 +1081,7 @@ struct World {
   v3 cube_face_color;
 
   v3 sphere_face_color;
+  v3 rect_face_color;
 
   int object_select_dropdown;
 
@@ -1093,7 +1094,7 @@ struct World {
   uint *spheres_vao;
   uint *spheres_vbo;
   v3 *sphere_colors;
-  v3 *AARect_colors;
+  v3 *rect_colors;
 
   m4 *spheres_transform;
 
@@ -1289,6 +1290,15 @@ void world_add_sphere( World &w, const Sphere &s, v3 color ){
   array_push( w.spheres_vbo, vbo );
 
   world_add_sphere_vertex_data(vao,vbo,s, color);
+}
+
+
+void world_add_rect( World &w, const Rectangle &r, v3 color ){
+  array_push( w.rects, r );
+  m4 transform = HMM_Mat4d( 1.0f );
+  array_push( w.model_matrices[OBJECT_RECT], transform );
+  array_push( w.rect_colors, color );
+
 }
 
 void world_generate_grid_data( World &w, Grid &g ){
@@ -1507,8 +1517,38 @@ void draw_world( const World &w ){
   }
 
   // Create line vertex data for rendering
-
+  
   uint value = 0;
+  for ( uint i = 0; i < array_length( w.rects ); i++ ){
+    Rectangle &r = w.rects[i];
+    v3 &color = w.rect_colors[i];
+    array_push( w.color_vertex_data, r.p0 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    array_push( w.color_vertex_data, r.p1 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    array_push( w.color_vertex_data, r.p2 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+
+    array_push( w.color_vertex_data, r.p3 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    // push the indices
+    array_push( w.color_vertex_indices, value );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value );
+
+    value += 4;
+  }
   for ( int i = 0; i < array_length( w.temp_color_quads ); i++ ){
     const ColorQuad &quad = w.temp_color_quads[i];
 
@@ -1664,12 +1704,10 @@ bool hit_world(
   bool hit_anything = false;
   if ( hit_grid( w.grid, r, tmin, max, temp_record ) ){
     hit_anything = true;
-    if ( temp_record.t < max ){
       max = temp_record.t;
       record = temp_record;
       record.obj.object = ( void *)&w.grid;
       record.obj.type = OBJECT_GRID;
-    }
   }
 #if 0
   if ( hit_cube( w.cube, r, tmin, max, temp_record ) ){
@@ -1686,24 +1724,30 @@ bool hit_world(
   for ( int i = 0; i < array_length( w.cubes ); i++ ){
     if ( hit_cube( w.cubes[i], r, tmin, max, temp_record ) ){
       hit_anything = true;
-      if ( temp_record.t < max ){
         max = temp_record.t;
         record = temp_record;
         record.obj.index = i;
         record.obj.type = OBJECT_CUBE_INSTANCE;
-      }
     }
   }
 
   for ( int i = 0; i < array_length( w.spheres ); i++ ){
     if ( hit_sphere( w.spheres[i], r, tmin, max, temp_record ) ){
       hit_anything = true;
-      if ( temp_record.t < max ){
         max = temp_record.t;
         record = temp_record;
         record.obj.index = i;
         record.obj.type = OBJECT_SPHERE;
-      }
+    }
+  }
+  for ( int i = 0 ; i < array_length( w.rects ); i++ ){
+    if ( hit_rect( w.rects[i], r, tmin, max, temp_record ) ){
+      hit_anything = true;
+      fprintf( stdout, "temp.t = %f, max = %f\n", temp_record.t, max );
+        max = temp_record.t;
+        record = temp_record;
+        record.obj.index = i;
+        record.obj.type = OBJECT_RECT;
     }
   }
   return hit_anything;
@@ -1822,12 +1866,13 @@ int main(){
   }
   
   w.cubes = array_allocate( Cube, 10 );
-  w.rects = array_allocate( AARect, 10 );
+  w.rects = array_allocate( Rectangle, 10 );
   w.boxes = array_allocate( AABB, 10 );
   w.lines = array_allocate( Line, 10 );
   w.spheres = array_allocate( Sphere, 10 );
   w.spheres_transform = array_allocate( m4, 10 );
   w.sphere_colors = array_allocate( v3, 10 );
+  w.rect_colors = array_allocate(v3,10 );
 
   w.temp_color_quads = array_allocate( ColorQuad, 10 );
   w.perm_color_quads = array_allocate( ColorQuad, 10 );
@@ -1881,6 +1926,8 @@ int main(){
   world_add_cube( w, &cube );
   world_add_sphere( w,
           Sphere( v3{0.0f,0.5f,0.0f}, 0.5f ) , v3 {1.0f,0.0f,0.0f} );
+  world_add_rect( w, 
+      create_rectangle( v3{-1.0f,2.0f,3.0f } ), v3{0.5f,0.2f,0.8f} );
   world_generate_grid_data(w, w.grid );
 #define WORLD_SET_STATE_FREE_VIEW \
   do {\
@@ -1951,8 +1998,8 @@ int main(){
   ImGui_ImplOpenGL3_Init("#version 430 core");
   
   bool show_imgui = false;
-  bool show_demo_window = true;
-  bool show_another_window = true;
+  bool show_demo_window = false;
+  bool show_another_window = false;
   ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
   WORLD_SET_STATE_FREE_VIEW;
@@ -2059,6 +2106,17 @@ int main(){
                     w.selected_data = (void *)(
                         w.spheres + w.selected_object.index );
                     break;
+                  case OBJECT_RECT:
+                    WORLD_SET_STATE_SELECTED;
+                    w.selected_object = record.obj;
+                    w.selected_aabb = rectangle_AABB;
+                    w.selected_move = rectangle_move;
+                    w.selected_rotate = rectangle_rotate;
+                    w.selected_scale= rectangle_scale;
+                    w.sphere_face_color = w.rect_colors[ record.obj.index ];
+                    w.selected_data = (void *)(
+                        w.rects+ w.selected_object.index );
+                    break;
 
                   case OBJECT_GRID:
                     if ( w.state == World::STATE_FREE_VIEW ) break;
@@ -2127,6 +2185,22 @@ int main(){
                       w.sphere_face_color=v3{0.5f,0.2f,0.0f};
                       w.selected_data = (void *)(
                           w.spheres+ w.selected_object.index );
+                      break;
+                    }
+                    case 2:
+                    {
+                      Rectangle r = create_rectangle( record.p );
+                      world_add_rect( w,r,v3{0.3f,0.2f,0.7f} );
+                      WORLD_SET_STATE_SELECTED;
+                      w.is_selected = true;
+                      w.selected_object.type = OBJECT_RECT;
+                      w.selected_object.index = array_length(w.rects)-1;
+                      w.selected_aabb = rectangle_AABB;
+                      w.selected_move = rectangle_move;
+                      w.selected_rotate = rectangle_rotate;
+                      w.rect_face_color =v3{0.3f,0.2f,0.7f};
+                      w.selected_data = (void *)(
+                          w.rects + w.selected_object.index );
                       break;
                     }
                     default:
@@ -2279,14 +2353,14 @@ int main(){
         case KB_PRESS_Q: case KB_REPEAT_Q:
           if ( w.state == World::STATE_SELECTED ){
             w.selected_rotate( w.selected_data,
-                5.0f, camera.U,
+                5.0f, v3{0.0f,1.0f,0.0f},
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
         case KB_PRESS_E: case KB_REPEAT_E:
           if ( w.state == World::STATE_SELECTED ){
             w.selected_rotate( w.selected_data,
-                -5.0f, camera.U,
+                -5.0f, v3{0.0f,1.0f,0.0f},
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           } 
           break;
@@ -2327,6 +2401,8 @@ int main(){
           array_push( w.boxes, w.cubes[record.obj.index].bounds );
         } else if ( record.obj.type == OBJECT_SPHERE ){
           array_push( w.boxes, w.spheres[ record.obj.index].box );
+        } else if ( record.obj.type == OBJECT_RECT ){
+          array_push( w.boxes, w.rects[ record.obj.index].box );
         }
       }
     }
@@ -2377,6 +2453,11 @@ int main(){
         ImGui::ColorEdit3("clear color",
             w.sphere_face_color.Elements );
         
+      } else if ( w.selected_object.type == OBJECT_RECT ){
+        // TODO: Two sliders
+        w.rect_face_color= w.rect_colors[ i ];
+        ImGui::ColorEdit3("clear color",
+            w.rect_face_color.Elements );
       }
       // Buttons return true when clicked (most widgets return true
       // when edited/activated)
@@ -2403,6 +2484,9 @@ int main(){
           world_add_sphere_vertex_data( w.spheres_vao[i],
               w.spheres_vbo[i], w.spheres[i], w.sphere_colors[i] );
           break;
+        case OBJECT_RECT:
+          w.rect_colors[i] = w.rect_face_color;
+          break;
         default:
           break;
       }
@@ -2413,7 +2497,7 @@ int main(){
       if (w.state == World::STATE_DETACHED){  
         ImGui::Begin("Place Objects", &show_another_window);
         const char* world_objects[] = { 
-          "Cube", "Sphere"
+          "Cube", "Sphere", "Plane"
         };
         ImGui::Combo("combo",
                      &w.hold_object_id,
