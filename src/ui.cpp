@@ -18,7 +18,6 @@
 #include "ui_primitives.h"
 #include "ui_objects.h"
 
-
 typedef GLuint guint;
 
 #define SCREEN_WIDTH  800
@@ -27,8 +26,8 @@ typedef GLuint guint;
 static uint ScreenWidth = 800;
 static uint ScreenHeight = 600;
 
-#define HMM_MAT4_PTR(x) ( &x.Elements[0][0] )
-#define HMM_MAT4P_PTR(x) (&( x->Elements[0][0]  ))
+#define HMM_MAT4_PTR(x) ( &( x ).Elements[0][0] )
+#define HMM_MAT4P_PTR(x) (&( ( x )->Elements[0][0]  ))
 #define ENABLE_GL_DEBUG_PRINT 1
 #define MS_TO_SEC(x) ( (x) * 1.0e-3f )
 
@@ -333,8 +332,6 @@ struct Camera {
   }
 };
 
-struct GLWindow {
-};
 
 enum Keys {
     KB_KEY_A = 0,
@@ -919,7 +916,31 @@ struct GridProgramInfo{
   uint8 color_id;
 };
 
+struct PointLightLocation{
+  uint pos_loc;
+  uint color_loc;
+};
+
 struct SimpleColorShaderProgram {
+  uint id;
+  uint mvp_loc;
+  uint model_loc;
+  uint view_loc;
+  uint view_pos_loc;
+
+  // Frag. shader
+  PointLightLocation point_light_loc[4];
+  uint num_lights_loc;
+  uint amb_loc;
+
+  uint8 pos_id;
+  uint8 color_id;
+  uint8 normal_id;
+
+};
+
+
+struct SimpleNLColorShaderProgram {
   uint id;
   uint mvp_loc;
 
@@ -930,9 +951,9 @@ struct SimpleColorShaderProgram {
 
 
 
-
 static GridProgramInfo grid_program_info; 
 static SimpleColorShaderProgram simple_color_shader_info;
+static SimpleNLColorShaderProgram nl_color_shader_info;
 
 
 int create_grid_program( ){
@@ -968,9 +989,46 @@ int create_simple_color_shader_program( ){
   simple_color_shader_info.mvp_loc =
           glGetUniformLocation( id,"mvp" );
 
+  char buff[256];
+  for ( int i = 0; i < 4; i++ ){
+    snprintf( buff, 256, "point_lights[%d].pos",i );
+    simple_color_shader_info.point_light_loc[i].pos_loc = 
+      glGetUniformLocation( id, buff );
+    snprintf( buff, 256, "point_lights[%d].color",i );
+    simple_color_shader_info.point_light_loc[i].color_loc= 
+      glGetUniformLocation( id, buff );
+  }
+  
+  simple_color_shader_info.model_loc = glGetUniformLocation( id, "model");
+  simple_color_shader_info.view_loc = glGetUniformLocation( id, "view" );
+  simple_color_shader_info.num_lights_loc = glGetUniformLocation( id,
+      "num_lights" );
+  simple_color_shader_info.amb_loc = glGetUniformLocation( id, "amb" );
+  simple_color_shader_info.view_pos_loc=glGetUniformLocation( id, "view_pos" );
+
   simple_color_shader_info.pos_id = 0;
   simple_color_shader_info.color_id = 1;
   simple_color_shader_info.normal_id = 2;
+  glUseProgram( 0 );
+  return 0;
+}
+
+int create_nl_color_shader_program( ){
+  if ( compile_program(&nl_color_shader_info.id,
+        "./shaders/simple-color-shader-nl.vert",
+        "./shaders/simple-color-shader-nl.frag" ) == -1 ){
+    fprintf(stderr,"Unable to compile Program!\n");
+    return -1;
+  }
+  const int &id = nl_color_shader_info.id;
+  
+  glUseProgram( id );
+  nl_color_shader_info.mvp_loc =
+          glGetUniformLocation( id,"mvp" );
+
+  nl_color_shader_info.pos_id = 0;
+  nl_color_shader_info.color_id = 1;
+  nl_color_shader_info.normal_id = 2;
   glUseProgram( 0 );
   return 0;
 }
@@ -1030,6 +1088,12 @@ struct ColorQuad {
   v3 n;
 };
 
+
+struct Light {
+  Object object;
+  v3 color;
+};
+
 struct World {
   enum State {
     STATE_INVALID = 0,
@@ -1052,6 +1116,26 @@ struct World {
   Cube *cubes;
   Sphere *spheres;
   Rectangle *rects;
+ 
+  v3 *light_pos;
+  v3 *light_colors;
+  v3 amb_light;
+  v3 *light_cube_color;
+  v3 *light_sphere_color;
+  v3 *light_rect_color;
+
+  Cube *light_cubes;
+  Sphere *light_spheres;
+  Rectangle *light_rects;
+
+  uint *light_cubes_vao;
+  uint *light_cubes_vbo;
+  
+  uint *light_spheres_vao;
+  uint *light_spheres_vbo;
+
+  uint *light_rect_vao;
+
   
   Line *lines;
   ColorQuad *temp_color_quads;
@@ -1083,6 +1167,10 @@ struct World {
   v3 sphere_face_color;
   v3 rect_face_color;
 
+  v3 light_cube_face_color;
+  v3 light_sphere_face_color;
+  v3 light_rect_face_color;
+
   int object_select_dropdown;
 
   uint grid_vao, grid_vbo, grid_ebo;
@@ -1107,6 +1195,84 @@ struct World {
   uint *index_stack; // Used as stack
   GLenum *color_vertex_modes; // Used as stack
 };
+void world_config_simple_color_shader_buffer(
+    uint vao, uint vbo, uint ebo,
+    size_t size
+)
+{
+  glBindVertexArray( vao );
+  glBindBuffer( GL_ARRAY_BUFFER, vbo );
+
+  size_t offset=size;
+  glBufferData( GL_ARRAY_BUFFER,
+                3 * offset,
+                NULL,
+                GL_STREAM_DRAW );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, ebo);
+
+
+  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
+  glVertexAttribPointer( simple_color_shader_info.pos_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof( v3 ), (void *)0 );
+
+  glEnableVertexAttribArray( simple_color_shader_info.color_id );
+  glVertexAttribPointer( simple_color_shader_info.color_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof(v3),
+                         (void *)(offset) );
+
+  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
+  glVertexAttribPointer( simple_color_shader_info.normal_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof(v3),
+                         (void *)( 2 * offset)  );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
+}
+void world_config_nl_color_shader_buffer(
+    uint vao, uint vbo, uint ebo,
+    size_t size
+)
+{
+  glBindVertexArray( vao );
+  glBindBuffer( GL_ARRAY_BUFFER, vbo );
+
+  size_t offset=size;
+  glBufferData( GL_ARRAY_BUFFER,
+                3 * offset,
+                NULL,
+                GL_STREAM_DRAW );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, ebo);
+
+
+  glEnableVertexAttribArray(nl_color_shader_info.pos_id );
+  glVertexAttribPointer( nl_color_shader_info.pos_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof( v3 ), (void *)0 );
+
+  glEnableVertexAttribArray( nl_color_shader_info.color_id );
+  glVertexAttribPointer( nl_color_shader_info.color_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof(v3),
+                         (void *)(offset) );
+
+  glEnableVertexAttribArray( nl_color_shader_info.normal_id );
+  glVertexAttribPointer( nl_color_shader_info.normal_id,
+                         3,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof(v3),
+                         (void *)( 2 * offset)  );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
+}
 
 void world_add_cube_vertex_data( uint vao, uint vbo, const Cube &cube ){
   v3 colors[24];
@@ -1132,35 +1298,45 @@ void world_add_cube_vertex_data( uint vao, uint vbo, const Cube &cube ){
 void world_generate_cube_data( uint &vao, uint &vbo, Cube &cube ){
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
-
-  glBindVertexArray( vao );
-  glBindBuffer( GL_ARRAY_BUFFER, vbo );
-
-  glBufferData( GL_ARRAY_BUFFER,
-                3 * sizeof(CubeVertices), 
-                NULL,
-                GL_STREAM_DRAW );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
-  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
-  glVertexAttribPointer( simple_color_shader_info.pos_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ), (void *)0 );
-
-  glEnableVertexAttribArray( simple_color_shader_info.color_id );
-  glVertexAttribPointer( simple_color_shader_info.color_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) ) );
-
-  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
-  glVertexAttribPointer( simple_color_shader_info.normal_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) * 2 ) );
   
+  world_config_simple_color_shader_buffer( 
+      vao, vbo, quad_elem_buffer_index, sizeof(CubeVertices) );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
+}
+
+void world_add_light_cube_vertex_data(
+    const World &w,
+    uint index )
+{
+  v3 colors[24];
+  for ( int i = 0; i < 24; i++ ){
+    colors[ i ] = w.light_cube_color[index];
+  }
+
+  glBindVertexArray( w.light_cubes_vao[index] );
+  glBindBuffer( GL_ARRAY_BUFFER, w.light_cubes_vbo[index] );
+  glBufferSubData( GL_ARRAY_BUFFER, 0, sizeof(CubeVertices), CubeVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices),
+                   sizeof(colors),
+                   colors);
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   sizeof(CubeVertices) + sizeof(colors),
+                   sizeof(CubeNormals),
+                   (void *)CubeNormals);
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+}
+
+void world_generate_light_cube( uint &vao, uint &vbo, Cube &cube ){
+  glGenVertexArrays( 1, &vao );
+  glGenBuffers( 1, &vbo );
+  
+  world_config_nl_color_shader_buffer( vao, vbo, 
+      quad_elem_buffer_index,
+      sizeof(CubeVertices) );
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
@@ -1174,19 +1350,35 @@ void world_add_sphere_vertex_data(
   for ( uint i = 0; i < array_length( SphereVertices ); i++ ){
     array_push( SphereColorBuff, color );
   }
+  size_t data_size = array_length(SphereVertices)*sizeof(*SphereVertices);
 
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
-  size_t data_size = sizeof(v3) * array_length( SphereVertices );
-  glBufferSubData( GL_ARRAY_BUFFER, 0,data_size , SphereVertices );
   glBufferSubData( GL_ARRAY_BUFFER, 
                    data_size,
                    data_size,
                    SphereColorBuff);
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  array_clear( SphereColorBuff );
+}
+
+void world_add_light_sphere_vertex_data(
+    const World &w, uint index
+    )
+{
+  v3 &color = w.light_sphere_color[index];
+  for ( uint i = 0; i < array_length( SphereVertices ); i++ ){
+    array_push( SphereColorBuff, color );
+  }
+
+  glBindVertexArray( w.light_spheres_vao[index] );
+  glBindBuffer( GL_ARRAY_BUFFER, w.light_spheres_vbo[index] );
+  size_t data_size = sizeof(v3) * array_length( SphereVertices );
   glBufferSubData( GL_ARRAY_BUFFER, 
-                   2 * data_size,
                    data_size,
-                   (void *) SphereNormals );
+                   data_size,
+                   SphereColorBuff);
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   array_clear( SphereColorBuff );
@@ -1201,41 +1393,41 @@ void world_add_cube( World &w, Cube *cube ){
 
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
+  world_config_simple_color_shader_buffer( vao, vbo, 
+      quad_elem_buffer_index,
+      sizeof(CubeVertices) );
 
-  glBindVertexArray( vao );
-  glBindBuffer( GL_ARRAY_BUFFER, vbo );
-
-  glBufferData( GL_ARRAY_BUFFER,
-                3 * sizeof(CubeVertices), 
-                NULL,
-                GL_STREAM_DRAW );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
-  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
-  glVertexAttribPointer( simple_color_shader_info.pos_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ), (void *)0 );
-
-  glEnableVertexAttribArray( simple_color_shader_info.color_id );
-  glVertexAttribPointer( simple_color_shader_info.color_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) ) );
-
-  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
-  glVertexAttribPointer( simple_color_shader_info.normal_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         3 * sizeof( float ),
-                         (void *)(sizeof(CubeVertices) * 2 ) );
-  
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
 
   array_push( w.cubes_vao, vao );
   array_push( w.cubes_vbo, vbo );
+
+  world_add_cube_vertex_data(vao,vbo,*cube);
+
+}
+
+void world_add_light_cube( World &w, Cube *cube, v3 color ){
+  uint vao, vbo;
+  array_push( w.light_cubes, *cube );
+  m4 model = HMM_Translate(cube->pos) *
+             HMM_Scale( v3{ cube->length, cube->length, cube->length } ); 
+  array_push( w.model_matrices[OBJECT_LIGHT_CUBE_INSTANCE],model );
+  array_push( w.light_cube_color, color );
+
+  glGenVertexArrays( 1, &vao );
+  glGenBuffers( 1, &vbo );
+  
+  world_config_nl_color_shader_buffer( vao, vbo, 
+      quad_elem_buffer_index,
+      sizeof(CubeVertices) );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
+
+  array_push( w.light_cubes_vao, vao );
+  array_push( w.light_cubes_vbo, vbo );
 
   world_add_cube_vertex_data(vao,vbo,*cube);
 
@@ -1250,38 +1442,20 @@ void world_add_sphere( World &w, const Sphere &s, v3 color ){
 
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
+  size_t offset= array_length(SphereVertices)*sizeof(*SphereVertices);
 
+  world_config_simple_color_shader_buffer( 
+      vao, vbo, sphere_element_buffer,
+      offset ); 
+  
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
-
-  size_t offset= array_length(SphereVertices)*sizeof(*SphereVertices);
-  glBufferData( GL_ARRAY_BUFFER,
-                3 * offset,
-                NULL,
-                GL_STREAM_DRAW );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, sphere_element_buffer);
-
-
-  glEnableVertexAttribArray(simple_color_shader_info.pos_id );
-  glVertexAttribPointer( simple_color_shader_info.pos_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         sizeof( v3 ), (void *)0 );
-
-  glEnableVertexAttribArray( simple_color_shader_info.color_id );
-  glVertexAttribPointer( simple_color_shader_info.color_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         sizeof(v3),
-                         (void *)(offset) );
-
-  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
-  glVertexAttribPointer( simple_color_shader_info.normal_id,
-                         3,
-                         GL_FLOAT, GL_FALSE,
-                         sizeof(v3),
-                         (void *)( 2 * offset)  );
-  
+  size_t data_size = sizeof(v3) * array_length( SphereVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 0,data_size , SphereVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   2 * data_size,
+                   data_size,
+                   (void *) SphereNormals );
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
@@ -1292,6 +1466,38 @@ void world_add_sphere( World &w, const Sphere &s, v3 color ){
   world_add_sphere_vertex_data(vao,vbo,s, color);
 }
 
+void world_add_light_sphere( World &w, const Sphere &s, v3 color ){
+  uint vao, vbo;
+  array_push( w.light_spheres, s );
+  m4 transform = HMM_Translate( s.c ) * HMM_Scale( v3{ s.r, s.r,s.r });
+  array_push( w.model_matrices[OBJECT_LIGHT_SPHERE], transform );
+  array_push( w.light_sphere_color, color );
+
+  glGenVertexArrays( 1, &vao );
+  glGenBuffers( 1, &vbo );
+  size_t offset= array_length(SphereVertices)*sizeof(*SphereVertices);
+  world_config_nl_color_shader_buffer( vao, vbo, sphere_element_buffer,
+      offset );
+
+  
+  glBindVertexArray( vao );
+  glBindBuffer( GL_ARRAY_BUFFER, vbo );
+  size_t data_size = sizeof(v3) * array_length( SphereVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 0,data_size , SphereVertices );
+  glBufferSubData( GL_ARRAY_BUFFER, 
+                   2 * data_size,
+                   data_size,
+                   (void *) SphereNormals );
+  glBindVertexArray( 0 );
+  glBindBuffer( GL_ARRAY_BUFFER, 0 );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
+
+  array_push( w.light_spheres_vao, vao );
+  array_push( w.light_spheres_vbo, vbo );
+
+  world_add_light_sphere_vertex_data( w, array_length(w.light_spheres)-1 );
+}
+
 
 void world_add_rect( World &w, const Rectangle &r, v3 color ){
   array_push( w.rects, r );
@@ -1300,6 +1506,15 @@ void world_add_rect( World &w, const Rectangle &r, v3 color ){
   array_push( w.rect_colors, color );
 
 }
+
+void world_add_light_rect( World &w, const Rectangle &r, v3 color ){
+  array_push( w.light_rects, r );
+  m4 transform = HMM_Mat4d( 1.0f );
+  array_push( w.model_matrices[OBJECT_RECT], transform );
+  array_push( w.light_rect_color, color );
+}
+
+
 
 void world_generate_grid_data( World &w, Grid &g ){
 
@@ -1501,24 +1716,162 @@ void world_draw_sphere( uint vao, const Sphere &s, const m4 &mvp ){
 
 
 void draw_world( const World &w ){
-  
-  m4 vp = w.perspective*w.camera.transform();
+  m4 v = w.camera.transform();  
+  m4 vp = w.perspective*v;
   world_draw_grid( w.grid_vao,w.grid,vp);
-//  world_draw_cube( w.cube_vao, w.cube,vp);
-  m4 *cube_models = w.model_matrices[ OBJECT_CUBE_INSTANCE ];
-  for ( int i = 0; i < array_length( w.cubes ); i++ ){
+
+  // draw the non-lighting stuff
+  glUseProgram( nl_color_shader_info.id );
+
+  m4 *cube_models = w.model_matrices[ OBJECT_LIGHT_CUBE_INSTANCE ];
+
+  for ( uint i = 0; i < array_length( w.light_cubes ); i++ ){
     m4 mvp = vp * cube_models[i];
-    world_draw_cube( w.cubes_vao[i], w.cubes[i], mvp );
-  }
-  m4 *sphere_models = w.model_matrices[ OBJECT_SPHERE ];
-  for ( uint i = 0; i < array_length( w.spheres ); i++ ){
-    m4 mvp = vp * sphere_models[i];
-    world_draw_sphere( w.spheres_vao[i], w.spheres[i], mvp );
+    glBindVertexArray( w.light_cubes_vao[i] );
+    glUniformMatrix4fv( nl_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(mvp) );
+    glDrawElements( GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0  );
+    array_push( w.light_pos, w.light_cubes[i].pos );
+    array_push( w.light_colors, w.light_cube_color[i] );
   }
 
-  // Create line vertex data for rendering
-  
+  m4 *sphere_models = w.model_matrices[ OBJECT_LIGHT_SPHERE ];
+  for ( uint i = 0; i < array_length( w.light_spheres ); i++ ){
+    m4 mvp = vp * sphere_models[i];
+    glUniformMatrix4fv( nl_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(mvp) );
+    glBindVertexArray( w.light_spheres_vao[i] );
+    glDrawElements( GL_TRIANGLES,
+                    array_length(SphereIndices),
+                    GL_UNSIGNED_INT, 0  );
+    glBindVertexArray( 0 );
+    array_push( w.light_pos, w.light_spheres[i].c );
+    array_push( w.light_colors, w.light_sphere_color[i] );
+  }
   uint value = 0;
+  for ( uint i = 0; i < array_length( w.light_rects ); i++ ){
+    Rectangle &r = w.light_rects[i];
+    v3 &color = w.light_rect_color[i];
+
+    array_push( w.light_pos,
+        r.p0 + ( r.l1 / 2 )*r.s1 + (r.l2/2)*r.s2 );
+    array_push( w.light_colors, w.light_rect_color[i] );
+
+    array_push( w.color_vertex_data, r.p0 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    array_push( w.color_vertex_data, r.p1 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    array_push( w.color_vertex_data, r.p2 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+
+    array_push( w.color_vertex_data, r.p3 );
+    array_push( w.color_vertex_data, color );
+    array_push( w.color_vertex_data, r.n );
+
+    // push the indices
+    array_push( w.color_vertex_indices, value );
+    array_push( w.color_vertex_indices, value + 1 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 2 );
+    array_push( w.color_vertex_indices, value + 3 );
+    array_push( w.color_vertex_indices, value );
+    value += 4;
+  }
+
+  glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
+  glBufferData( GL_ELEMENT_ARRAY_BUFFER,
+                sizeof(uint) * array_length( w.color_vertex_indices ),
+                w.color_vertex_indices,
+                GL_STATIC_DRAW );
+
+  glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
+  glBufferData( GL_ARRAY_BUFFER, 
+                sizeof(v3) * array_length( w.color_vertex_data ),
+                w.color_vertex_data,
+                GL_STATIC_DRAW
+              );
+
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(vp) );
+  glDrawElements(GL_TRIANGLES,array_length(w.color_vertex_data),
+                 GL_UNSIGNED_INT, 0 );
+
+  array_clear( w.color_vertex_data );
+  array_clear( w.color_vertex_indices );
+
+
+  glUseProgram( 0 );
+
+  // Draw all the lighting stuff
+  glUseProgram( simple_color_shader_info.id );
+  
+  glUniform3fv(simple_color_shader_info.view_pos_loc,
+      1, w.camera.P.Elements );
+
+  uint loop_count =  array_length( w.light_pos ) < 4 ? 
+                     array_length( w.light_pos ) : 4;
+  for ( uint i = 0; i < loop_count ; i++ ){
+    PointLightLocation &p = simple_color_shader_info.point_light_loc[i];
+    glUniform3fv( p.pos_loc,1, w.light_pos[i].Elements );
+    glUniform3fv( p.color_loc,1, w.light_colors[i].Elements );
+  }
+  glUniform1i( simple_color_shader_info.num_lights_loc, loop_count );
+  glUniform3fv( simple_color_shader_info.amb_loc,1, w.amb_light.Elements );
+  glUniformMatrix4fv( simple_color_shader_info.view_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(v) );
+  cube_models = w.model_matrices[ OBJECT_CUBE_INSTANCE ];
+
+  for ( uint i = 0; i < array_length( w.cubes ); i++ ){
+    m4 mvp = vp * cube_models[i];
+    glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(mvp) );
+    glUniformMatrix4fv( simple_color_shader_info.model_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR( cube_models[i] ) );
+    glBindVertexArray( w.cubes_vao[i] );
+    glDrawElements( GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0  );
+    glBindVertexArray( 0 );
+  }
+
+  sphere_models = w.model_matrices[ OBJECT_SPHERE ];
+  for ( uint i = 0; i < array_length( w.spheres ); i++ ){
+    m4 mvp = vp * sphere_models[i];
+    glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(mvp) );
+    glUniformMatrix4fv( simple_color_shader_info.model_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR( sphere_models[i] ) );
+    glBindVertexArray( w.spheres_vao[i] );
+    glDrawElements( GL_TRIANGLES,
+                    array_length(SphereIndices),
+                    GL_UNSIGNED_INT, 0  );
+    glBindVertexArray( 0 );
+  }
+
+
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(vp) );
+  glUniformMatrix4fv( simple_color_shader_info.view_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR( v ) );
+  glUniformMatrix4fv( simple_color_shader_info.model_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR( HMM_Mat4d(1.0f) ) );
+  value = 0;
   for ( uint i = 0; i < array_length( w.rects ); i++ ){
     Rectangle &r = w.rects[i];
     v3 &color = w.rect_colors[i];
@@ -1546,9 +1899,37 @@ void draw_world( const World &w ){
     array_push( w.color_vertex_indices, value + 2 );
     array_push( w.color_vertex_indices, value + 3 );
     array_push( w.color_vertex_indices, value );
-
     value += 4;
   }
+
+  glBindVertexArray( w.color_vao );
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
+  glBufferData( GL_ELEMENT_ARRAY_BUFFER,
+                sizeof(uint) * array_length( w.color_vertex_indices ),
+                w.color_vertex_indices,
+                GL_STATIC_DRAW );
+
+  glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
+  glBufferData( GL_ARRAY_BUFFER, 
+                sizeof(v3) * array_length( w.color_vertex_data ),
+                w.color_vertex_data,
+                GL_STATIC_DRAW
+              );
+
+  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                      1,GL_FALSE,
+                      HMM_MAT4_PTR(vp) );
+  glDrawElements(GL_TRIANGLES,array_length(w.color_vertex_data),
+                 GL_UNSIGNED_INT, 0 );
+
+  array_clear( w.color_vertex_data );
+  array_clear( w.color_vertex_indices );
+
+  glUseProgram( 0 );
+
+  // Create line vertex data for rendering
+  
+  value = 0;
   for ( int i = 0; i < array_length( w.temp_color_quads ); i++ ){
     const ColorQuad &quad = w.temp_color_quads[i];
 
@@ -1643,7 +2024,7 @@ void draw_world( const World &w ){
   array_push( w.color_vertex_modes, (GLenum)GL_LINES );
   array_push( w.index_stack, array_length(w.color_vertex_indices) );
 
-  glUseProgram( simple_color_shader_info.id );
+  glUseProgram( nl_color_shader_info.id );
   glBindVertexArray( w.color_vao );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
   glBufferData( GL_ELEMENT_ARRAY_BUFFER,
@@ -1658,7 +2039,7 @@ void draw_world( const World &w ){
                 GL_STATIC_DRAW
               );
 
-  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+  glUniformMatrix4fv( nl_color_shader_info.mvp_loc,
                       1,GL_FALSE,
                       HMM_MAT4_PTR(vp) );
 #if 1
@@ -1709,17 +2090,6 @@ bool hit_world(
       record.obj.object = ( void *)&w.grid;
       record.obj.type = OBJECT_GRID;
   }
-#if 0
-  if ( hit_cube( w.cube, r, tmin, max, temp_record ) ){
-    hit_anything = true;
-    if ( temp_record.t < max ){
-      max = temp_record.t;
-      record = temp_record;
-      record.obj_type = OBJECT_CUBE;
-      record.object = (void *)&w.cube;
-    }
-  }
-#endif
 
   for ( int i = 0; i < array_length( w.cubes ); i++ ){
     if ( hit_cube( w.cubes[i], r, tmin, max, temp_record ) ){
@@ -1743,11 +2113,39 @@ bool hit_world(
   for ( int i = 0 ; i < array_length( w.rects ); i++ ){
     if ( hit_rect( w.rects[i], r, tmin, max, temp_record ) ){
       hit_anything = true;
-      fprintf( stdout, "temp.t = %f, max = %f\n", temp_record.t, max );
         max = temp_record.t;
         record = temp_record;
         record.obj.index = i;
         record.obj.type = OBJECT_RECT;
+    }
+  }
+  for ( int i = 0; i < array_length( w.light_cubes ); i++ ){
+    if ( hit_cube( w.light_cubes[i], r, tmin, max, temp_record ) ){
+      hit_anything = true;
+        max = temp_record.t;
+        record = temp_record;
+        record.obj.index = i;
+        record.obj.type = OBJECT_LIGHT_CUBE_INSTANCE;
+    }
+  }
+
+  for ( int i = 0; i < array_length( w.light_spheres ); i++ ){
+    if ( hit_sphere( w.light_spheres[i], r, tmin, max, temp_record ) ){
+      hit_anything = true;
+        max = temp_record.t;
+        record = temp_record;
+        record.obj.index = i;
+        record.obj.type = OBJECT_LIGHT_SPHERE;
+    }
+  }
+
+  for ( int i = 0 ; i < array_length( w.light_rects ); i++ ){
+    if ( hit_rect( w.light_rects[i], r, tmin, max, temp_record ) ){
+      hit_anything = true;
+        max = temp_record.t;
+        record = temp_record;
+        record.obj.index = i;
+        record.obj.type = OBJECT_LIGHT_RECT;
     }
   }
   return hit_anything;
@@ -1827,10 +2225,13 @@ int main(){
   if ( create_simple_color_shader_program() == -1 ){
     return -1;
   }
-
+  if ( create_nl_color_shader_program() == -1 ){
+    return -1;
+  }
   // create_world
   World *world = (World *)malloc( sizeof(World) );
   World &w = *world;
+  w.amb_light = { 0.3f, 0.3f, 0.3f };
   w.grid = create_grid(
             AARect::PLANE_ZX,
             AABB( v3{ -10.0f, 0.0f, -10.0f }, v3{ 10.0f, 0.0f, 10.0f } ),
@@ -1873,6 +2274,21 @@ int main(){
   w.spheres_transform = array_allocate( m4, 10 );
   w.sphere_colors = array_allocate( v3, 10 );
   w.rect_colors = array_allocate(v3,10 );
+
+  w.light_cubes = array_allocate( Cube, 10 );
+  w.light_rects = array_allocate( Rectangle, 10 );
+  w.light_spheres = array_allocate( Sphere, 10 );
+  w.light_pos = array_allocate( v3, 10 );
+  w.light_colors = array_allocate( v3, 10 );
+
+  w.light_cube_color = array_allocate( v3, 10 );
+  w.light_sphere_color = array_allocate( v3, 10 );
+  w.light_rect_color = array_allocate( v3, 10 );
+
+  w.light_cubes_vao = array_allocate( uint, 10 );
+  w.light_spheres_vao = array_allocate( uint, 10 );
+  w.light_cubes_vbo = array_allocate( uint, 10 );
+  w.light_spheres_vbo = array_allocate( uint, 10 );
 
   w.temp_color_quads = array_allocate( ColorQuad, 10 );
   w.perm_color_quads = array_allocate( ColorQuad, 10 );
@@ -2045,7 +2461,6 @@ int main(){
           if ( hit_grid( w.grid, ray, 0.001f, 100.0f, record ) ){
             record.print();
             v3 p0 = grid_get_corner_point( w.grid, record.u, record.v );
-            fprintf(stdout,"Corner point: ");
             print_v3( p0 );
             v3 p1 = p0 + w.grid.dir1 * w.grid.w;
             v3 p2 = p0 + w.grid.dir1 * w.grid.w + w.grid.dir2 * w.grid.w;
@@ -2055,7 +2470,6 @@ int main(){
                                w.grid.rect.n
                              };
             array_push( w.perm_color_quads, quad );
-            fprintf(stdout,"\n" );
           }
 #if 0
           array_push( w.lines,
@@ -2082,6 +2496,7 @@ int main(){
                 w.is_selected = record.obj.type != OBJECT_GRID;
 
                 switch ( record.obj.type ){
+                  case OBJECT_LIGHT_CUBE_INSTANCE:
                   case OBJECT_CUBE_INSTANCE: 
                     WORLD_SET_STATE_SELECTED;
                     w.selected_object = record.obj;
@@ -2089,12 +2504,20 @@ int main(){
                     w.selected_move = cube_move;
                     w.selected_rotate = cube_rotate;
                     w.selected_scale = cube_scale;
+                    if ( record.obj.type == OBJECT_CUBE_INSTANCE ){
                     w.cube_face_dropdown = 0;
                     w.cube_face_color=
                         w.cubes[w.selected_object.index].color[0];
                     w.selected_data = (void *)(
                         w.cubes + w.selected_object.index );
+                    } else {
+                      w.light_cube_face_color =
+                        w.light_cube_color[ w.selected_object.index ];
+                    w.selected_data = (void *)(
+                        w.light_cubes + w.selected_object.index );
+                    }
                     break;
+                  case OBJECT_LIGHT_SPHERE:
                   case OBJECT_SPHERE:
                     WORLD_SET_STATE_SELECTED;
                     w.selected_object = record.obj;
@@ -2102,10 +2525,18 @@ int main(){
                     w.selected_move = sphere_move;
                     w.selected_rotate = sphere_rotate;
                     w.selected_scale= sphere_scale;
-                    w.sphere_face_color = w.sphere_colors[ record.obj.index ];
-                    w.selected_data = (void *)(
-                        w.spheres + w.selected_object.index );
+                    if ( record.obj.type == OBJECT_SPHERE ){
+                      w.sphere_face_color =
+                        w.sphere_colors[ record.obj.index ];
+                      w.selected_data = (void *)(
+                          w.spheres + w.selected_object.index );
+                    } else {
+                      w.light_sphere_face_color = w.light_sphere_color[ record.obj.index ];
+                      w.selected_data = (void *)(
+                          w.light_spheres + w.selected_object.index );
+                    }
                     break;
+                  case OBJECT_LIGHT_RECT:
                   case OBJECT_RECT:
                     WORLD_SET_STATE_SELECTED;
                     w.selected_object = record.obj;
@@ -2113,9 +2544,16 @@ int main(){
                     w.selected_move = rectangle_move;
                     w.selected_rotate = rectangle_rotate;
                     w.selected_scale= rectangle_scale;
-                    w.sphere_face_color = w.rect_colors[ record.obj.index ];
+                    if ( record.obj.type == OBJECT_RECT ){
+                    w.rect_face_color= w.rect_colors[ record.obj.index ];
                     w.selected_data = (void *)(
                         w.rects+ w.selected_object.index );
+                    } else {
+                    w.light_rect_face_color = 
+                      w.light_rect_color[ record.obj.index ];
+                    w.selected_data = (void *)(
+                        w.light_rects+ w.selected_object.index );
+                    }
                     break;
 
                   case OBJECT_GRID:
@@ -2152,7 +2590,7 @@ int main(){
               if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
                 if( record.obj.type == OBJECT_GRID ){
                   switch ( w.hold_object_id ){
-                    case 0:
+                    case 0: 
                     {
                       Cube cube = create_cube_one_color( 0.2f, record.p,
                         v3 {0,1,0} ) ;
@@ -2201,6 +2639,55 @@ int main(){
                       w.rect_face_color =v3{0.3f,0.2f,0.7f};
                       w.selected_data = (void *)(
                           w.rects + w.selected_object.index );
+                      break;
+                    }
+                    case 3: 
+                    {
+                      Cube cube = create_cube_one_color( 0.2f, record.p,
+                        v3 {1,1,1} ) ;
+                      world_add_light_cube( w, &cube, v3{1,1,1} );
+                      WORLD_SET_STATE_SELECTED;
+                      w.is_selected = true;
+                      w.selected_object.type = OBJECT_LIGHT_CUBE_INSTANCE;
+                      w.selected_object.index = array_length(w.light_cubes)-1;
+                      w.selected_aabb = cube_get_AABB;
+                      w.selected_move = cube_move;
+                      w.selected_rotate = cube_rotate;
+                      w.light_cube_face_color = v3{1,1,1};
+                      w.selected_data = (void *)(
+                          w.light_cubes + w.selected_object.index );
+                      break;
+                    }
+                    case 4:
+                    {
+                      Sphere s( record.p, 0.5f );
+                      world_add_light_sphere( w,s,v3{1.0f,1.0f,1.0f} );
+                      WORLD_SET_STATE_SELECTED;
+                      w.is_selected = true;
+                      w.selected_object.type = OBJECT_LIGHT_SPHERE;
+                      w.selected_object.index=array_length(w.light_spheres)-1;
+                      w.selected_aabb = sphere_aabb;
+                      w.selected_move = sphere_move;
+                      w.selected_rotate = sphere_rotate;
+                      w.light_sphere_face_color=v3{1.0f,1.0f,1.0f};
+                      w.selected_data = (void *)(
+                          w.light_spheres+ w.selected_object.index );
+                      break;
+                    }
+                    case 5:
+                    {
+                      Rectangle r = create_rectangle( record.p );
+                      world_add_light_rect( w,r,v3{1,1,1} );
+                      WORLD_SET_STATE_SELECTED;
+                      w.is_selected = true;
+                      w.selected_object.type = OBJECT_LIGHT_RECT;
+                      w.selected_object.index = array_length(w.light_rects)-1;
+                      w.selected_aabb = rectangle_AABB;
+                      w.selected_move = rectangle_move;
+                      w.selected_rotate = rectangle_rotate;
+                      w.light_rect_face_color=v3{1.0f,1,1};
+                      w.selected_data = (void *)(
+                          w.light_rects + w.selected_object.index );
                       break;
                     }
                     default:
@@ -2403,6 +2890,12 @@ int main(){
           array_push( w.boxes, w.spheres[ record.obj.index].box );
         } else if ( record.obj.type == OBJECT_RECT ){
           array_push( w.boxes, w.rects[ record.obj.index].box );
+        } else if ( record.obj.type == OBJECT_LIGHT_CUBE_INSTANCE ){
+          array_push( w.boxes, w.light_cubes[record.obj.index].bounds );
+        } else if ( record.obj.type == OBJECT_LIGHT_SPHERE ){
+          array_push( w.boxes, w.light_spheres[ record.obj.index].box );
+        } else if ( record.obj.type == OBJECT_LIGHT_RECT ){
+          array_push( w.boxes, w.light_rects[ record.obj.index].box );
         }
       }
     }
@@ -2458,6 +2951,22 @@ int main(){
         w.rect_face_color= w.rect_colors[ i ];
         ImGui::ColorEdit3("clear color",
             w.rect_face_color.Elements );
+      } else if ( w.selected_object.type != OBJECT_GRID ) {
+        v3 *color;
+        switch ( w.selected_object.type ){
+          case OBJECT_LIGHT_RECT:
+            color = &w.light_rect_face_color;
+            w.light_rect_face_color= w.light_rect_color[i]; break;
+          case OBJECT_LIGHT_SPHERE:
+            color = &w.light_sphere_face_color;
+            w.light_sphere_face_color = w.light_sphere_color[i]; break;
+          case OBJECT_LIGHT_CUBE_INSTANCE:
+            color = &w.light_cube_face_color;
+            w.light_cube_face_color= w.light_cube_color[i]; break;
+          default: break;
+        }
+        ImGui::ColorEdit3("Change Color",
+            color->Elements );
       }
       // Buttons return true when clicked (most widgets return true
       // when edited/activated)
@@ -2487,6 +2996,20 @@ int main(){
         case OBJECT_RECT:
           w.rect_colors[i] = w.rect_face_color;
           break;
+        case OBJECT_LIGHT_CUBE_INSTANCE:
+        {
+          Cube *cube =w.light_cubes + i;
+          w.light_cube_color[i] = w.light_cube_face_color;
+          world_add_light_cube_vertex_data(w,i);
+        }
+          break;
+        case OBJECT_LIGHT_SPHERE:
+          w.light_sphere_color[i] = w.light_sphere_face_color;
+          world_add_light_sphere_vertex_data(w,i);
+          break;
+        case OBJECT_LIGHT_RECT:
+          w.light_rect_color[i] = w.light_rect_face_color;
+          break;
         default:
           break;
       }
@@ -2497,7 +3020,7 @@ int main(){
       if (w.state == World::STATE_DETACHED){  
         ImGui::Begin("Place Objects", &show_another_window);
         const char* world_objects[] = { 
-          "Cube", "Sphere", "Plane"
+          "Cube", "Sphere", "Plane","Light Cube", "Light Sphere", "Light Plane"
         };
         ImGui::Combo("combo",
                      &w.hold_object_id,
@@ -2522,6 +3045,8 @@ int main(){
     array_clear( w.index_stack );
     array_clear( w.temp_color_quads );
     array_clear( w.boxes );
+    array_clear( w.light_pos );
+    array_clear( w.light_colors );
   }
   glfwTerminate();
 }

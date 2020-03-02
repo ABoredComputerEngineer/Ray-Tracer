@@ -235,7 +235,6 @@ bool hit_rect(
   v3 temp = r.p0 - ray.start;
   float t = HMM_DotVec3( temp, r.n )/d ;
   if ( t > tmin && t < tmax ){
-    fprintf( stdout, "Intersecting plane!\n" );
     v3 point = ray.point_at( t );
     v3 t1 = point - r.p0;
     f32 d1 = HMM_DotVec3( r.s1, t1 );
@@ -243,10 +242,8 @@ bool hit_rect(
 
     if ( ( d1 > 0 && d1 < r.l1 ) && ( d2 > 0 && d2 < r.l2 ) ){
 
-    fprintf( stdout, "Intersecting Rectangle!\n\n" );
       return true;
     }
-    fprintf( stdout, "Not Intersecting Rectangle!\n\n" );
     return false;  
   }
   return false;
