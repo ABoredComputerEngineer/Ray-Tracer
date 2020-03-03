@@ -141,6 +141,7 @@ inline void cube_update_matrix( Cube *cube ){
                             cube->length, cube->length } ); 
 }
 
+
 AABB cube_get_AABB( void *cube, const m4 &model );
 
 v3 grid_get_corner_point( const Grid &grid, f32 u, f32 v );
@@ -198,6 +199,15 @@ inline void rectangle_rotate( void *c, float deg, v3 axis, m4 &model ){
   r.p3 = r.p0 + r.l2 * r.s2;
 
   r.n = HMM_NormalizeVec3( HMM_Cross( r.s1,r.s2 ) );
+}
+
+inline void rectangle_scale( void *rect, f32 l1, f32 l2 ){
+  Rectangle &r = *(Rectangle *)rect;
+  r.l1 = l1;
+  r.l2 = l2;
+  r.p1 = r.p0 + r.l1 * r.s1;
+  r.p2 = r.p0 + r.l1 * r.s1 + r.l2 * r.s2;
+  r.p3 = r.p0 + r.l2 * r.s2;
 }
 
 

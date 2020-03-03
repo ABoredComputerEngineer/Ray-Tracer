@@ -1163,9 +1163,16 @@ struct World {
   // Dear imgui selection stuff
   int cube_face_dropdown;
   v3 cube_face_color;
+  v3 cube_side_length;
+  f32 sel_cube_length;
 
   v3 sphere_face_color;
+  f32 sel_sphere_radius;
+
   v3 rect_face_color;
+  int rect_flip_normal;
+  f32 sel_rect_l1;
+  f32 sel_rect_l2;
 
   v3 light_cube_face_color;
   v3 light_sphere_face_color;
@@ -2299,6 +2306,8 @@ int main(){
   w.spheres_vbo = array_allocate( uint, 10 );
 
 
+  w.rect_flip_normal = 0;
+
   w.color_vertex_data = array_allocate( v3, 1000 );
   w.color_vertex_indices = array_allocate( uint, 3000 );
 
@@ -2510,11 +2519,15 @@ int main(){
                         w.cubes[w.selected_object.index].color[0];
                     w.selected_data = (void *)(
                         w.cubes + w.selected_object.index );
+                    w.sel_cube_length =
+                      w.cubes[w.selected_object.index].length;
                     } else {
                       w.light_cube_face_color =
                         w.light_cube_color[ w.selected_object.index ];
                     w.selected_data = (void *)(
                         w.light_cubes + w.selected_object.index );
+                    w.sel_cube_length =
+                      w.light_cubes[w.selected_object.index].length;
                     }
                     break;
                   case OBJECT_LIGHT_SPHERE:
@@ -2530,10 +2543,14 @@ int main(){
                         w.sphere_colors[ record.obj.index ];
                       w.selected_data = (void *)(
                           w.spheres + w.selected_object.index );
+                      w.sel_sphere_radius = 
+                          w.spheres[w.selected_object.index].r;
                     } else {
                       w.light_sphere_face_color = w.light_sphere_color[ record.obj.index ];
                       w.selected_data = (void *)(
                           w.light_spheres + w.selected_object.index );
+                      w.sel_sphere_radius = 
+                          w.light_spheres[w.selected_object.index].r;
                     }
                     break;
                   case OBJECT_LIGHT_RECT:
@@ -2545,14 +2562,22 @@ int main(){
                     w.selected_rotate = rectangle_rotate;
                     w.selected_scale= rectangle_scale;
                     if ( record.obj.type == OBJECT_RECT ){
-                    w.rect_face_color= w.rect_colors[ record.obj.index ];
-                    w.selected_data = (void *)(
+                      w.rect_face_color= w.rect_colors[ record.obj.index ];
+                      w.selected_data = (void *)(
                         w.rects+ w.selected_object.index );
+                      w.sel_rect_l1= 
+                          w.rects[w.selected_object.index].l1;
+                      w.sel_rect_l2= 
+                          w.rects[w.selected_object.index].l2;
                     } else {
-                    w.light_rect_face_color = 
-                      w.light_rect_color[ record.obj.index ];
-                    w.selected_data = (void *)(
-                        w.light_rects+ w.selected_object.index );
+                      w.light_rect_face_color = 
+                        w.light_rect_color[ record.obj.index ];
+                      w.selected_data = (void *)(
+                          w.light_rects+ w.selected_object.index );
+                      w.sel_rect_l1= 
+                          w.light_rects[w.selected_object.index].l1;
+                      w.sel_rect_l2= 
+                          w.light_rects[w.selected_object.index].l2;
                     }
                     break;
 
@@ -2607,6 +2632,7 @@ int main(){
                         w.cubes[w.selected_object.index].color[0];
                       w.selected_data = (void *)(
                           w.cubes + w.selected_object.index );
+                      w.sel_cube_length = 0.2f;
                       break;
                     }
                     case 1:
@@ -2614,6 +2640,7 @@ int main(){
                       Sphere s( record.p, 0.5f );
                       world_add_sphere( w,s,v3{0.5f,0.2f,0.0f} );
                       WORLD_SET_STATE_SELECTED;
+                      w.sel_sphere_radius = 0.5f;
                       w.is_selected = true;
                       w.selected_object.type = OBJECT_SPHERE;
                       w.selected_object.index = array_length(w.spheres)-1;
@@ -2630,6 +2657,8 @@ int main(){
                       Rectangle r = create_rectangle( record.p );
                       world_add_rect( w,r,v3{0.3f,0.2f,0.7f} );
                       WORLD_SET_STATE_SELECTED;
+                      w.sel_rect_l1 = r.l1;
+                      w.sel_rect_l2 = r.l2;
                       w.is_selected = true;
                       w.selected_object.type = OBJECT_RECT;
                       w.selected_object.index = array_length(w.rects)-1;
@@ -2647,6 +2676,7 @@ int main(){
                         v3 {1,1,1} ) ;
                       world_add_light_cube( w, &cube, v3{1,1,1} );
                       WORLD_SET_STATE_SELECTED;
+                      w.sel_cube_length = 0.2f;
                       w.is_selected = true;
                       w.selected_object.type = OBJECT_LIGHT_CUBE_INSTANCE;
                       w.selected_object.index = array_length(w.light_cubes)-1;
@@ -2663,6 +2693,7 @@ int main(){
                       Sphere s( record.p, 0.5f );
                       world_add_light_sphere( w,s,v3{1.0f,1.0f,1.0f} );
                       WORLD_SET_STATE_SELECTED;
+                      w.sel_sphere_radius = 0.5f;
                       w.is_selected = true;
                       w.selected_object.type = OBJECT_LIGHT_SPHERE;
                       w.selected_object.index=array_length(w.light_spheres)-1;
@@ -2680,6 +2711,8 @@ int main(){
                       world_add_light_rect( w,r,v3{1,1,1} );
                       WORLD_SET_STATE_SELECTED;
                       w.is_selected = true;
+                      w.sel_rect_l1 = r.l1;
+                      w.sel_rect_l2 = r.l2;
                       w.selected_object.type = OBJECT_LIGHT_RECT;
                       w.selected_object.index = array_length(w.light_rects)-1;
                       w.selected_aabb = rectangle_AABB;
@@ -2941,16 +2974,33 @@ int main(){
         w.cube_face_color = cube->color[w.cube_face_dropdown];
         ImGui::ColorEdit3("clear color",
             w.cube_face_color.Elements );
+        ImGui::SliderFloat("Cube Length",
+                           &w.sel_cube_length,
+                           0.01f, 3.0f, "ratio = %.3f");
+
       } else if ( w.selected_object.type == OBJECT_SPHERE ){
         w.sphere_face_color = w.sphere_colors[ i ];
         ImGui::ColorEdit3("clear color",
             w.sphere_face_color.Elements );
+        ImGui::SliderFloat("Sphere Radius",
+                           &w.sel_sphere_radius,
+                           0.01f, 3.0f, "ratio = %.3f");
         
       } else if ( w.selected_object.type == OBJECT_RECT ){
         // TODO: Two sliders
         w.rect_face_color= w.rect_colors[ i ];
         ImGui::ColorEdit3("clear color",
             w.rect_face_color.Elements );
+        if ( ImGui::Button( "Flip Normal" ) ){
+          w.rect_flip_normal++;
+        }
+        ImGui::SliderFloat("Rectangle length 1",
+                           &w.sel_rect_l1,
+                           0.01f, 3.0f, "ratio = %.3f");
+        ImGui::SliderFloat("Rectangle length 3",
+                           &w.sel_rect_l2,
+                           0.01f, 3.0f, "ratio = %.3f");
+
       } else if ( w.selected_object.type != OBJECT_GRID ) {
         v3 *color;
         switch ( w.selected_object.type ){
@@ -2986,16 +3036,31 @@ int main(){
           Cube *cube =w.cubes + i;
           cube->color[ w.cube_face_dropdown ] = w.cube_face_color;
           world_add_cube_vertex_data( w.cubes_vao[i], w.cubes_vbo[i],*cube );
+          f32 l = w.sel_cube_length;
+          cube_scale( cube, v3{l,l,l},
+                      w.model_matrices[OBJECT_CUBE_INSTANCE][i] );
         }
           break;
         case OBJECT_SPHERE:
-          w.sphere_colors[i] = w.sphere_face_color;
-          world_add_sphere_vertex_data( w.spheres_vao[i],
-              w.spheres_vbo[i], w.spheres[i], w.sphere_colors[i] );
+          {
+            w.sphere_colors[i] = w.sphere_face_color;
+            world_add_sphere_vertex_data( w.spheres_vao[i],
+                w.spheres_vbo[i], w.spheres[i], w.sphere_colors[i] );
+            f32 l = w.sel_sphere_radius;
+            sphere_scale(w.spheres+i, v3{l,l,l},
+                w.model_matrices[OBJECT_SPHERE][i] );
+          }
           break;
         case OBJECT_RECT:
-          w.rect_colors[i] = w.rect_face_color;
-          break;
+          {
+            w.rect_colors[i] = w.rect_face_color;
+            if ( w.rect_flip_normal ){
+              w.rect_flip_normal--;
+              w.rects[i].n *= -1;
+            }
+            rectangle_scale( w.selected_data,w.sel_rect_l1, w.sel_rect_l2 );
+            break;
+          }
         case OBJECT_LIGHT_CUBE_INSTANCE:
         {
           Cube *cube =w.light_cubes + i;
