@@ -93,11 +93,17 @@ struct Sphere {
   v3 c;
   float r;
   AABB box;
-  Sphere ( v3 center, float radius ):c(center), r(radius){
-    v3 rad = { r,r,r, };
-    box = AABB( c - rad, c + rad );
-  }
 };
+
+inline Sphere create_sphere( v3 center, float radius ){
+  Sphere s;
+  s.c = center; 
+  s.r = radius;
+  v3 rad = { s.r, s.r, s.r };
+  s.box = AABB( s.c-rad, s.c+rad ); 
+  return s;
+}
+
 #if 0
 inline AABB sphere_aabb( const Sphere &sph ){
   v3 r = { sph.r, sph.r, sph.r };

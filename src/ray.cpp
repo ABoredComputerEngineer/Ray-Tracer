@@ -99,6 +99,7 @@ struct Camera {
   Camera (
       v3 look_from,
       v3 look_at,
+      float z,
       float vfov,
       float aspect_ratio,
       float aperture,
@@ -106,7 +107,7 @@ struct Camera {
   {
     float fd = focal_dist;
     origin = look_from;
-    float half_height = tan( HMM_ToRadians(vfov)/2 );
+    float half_height = z * tan( HMM_ToRadians(vfov)/2 );
     float half_width = aspect_ratio * half_height;
     
     front = HMM_NormalizeVec3( look_from-look_at );   
@@ -115,7 +116,7 @@ struct Camera {
     right = HMM_Cross( aup, front);
     up = HMM_Cross( front, right);
 
-    lower_left =origin-fd*front-right*fd* half_width-up*fd*half_height;
+    lower_left =origin-fd*z*front-right*fd* half_width-up*fd*half_height;
     lens_radius = aperture/2;
     horizontal = 2 * half_width*fd * right;
     vertical = 2 * half_height *fd* up;

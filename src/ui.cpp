@@ -17,14 +17,15 @@
 #include "HandmadeMath.h"
 #include "ui_primitives.h"
 #include "ui_objects.h"
+#include "ray_data.h"
 
 typedef GLuint guint;
 
 #define SCREEN_WIDTH  800
 #define SCREEN_HEIGHT 600
 
-static uint ScreenWidth = 800;
-static uint ScreenHeight = 600;
+static uint ScreenWidth = 1366;
+static uint ScreenHeight = 768;
 
 #define HMM_MAT4_PTR(x) ( &( x ).Elements[0][0] )
 #define HMM_MAT4P_PTR(x) (&( ( x )->Elements[0][0]  ))
@@ -113,6 +114,7 @@ static v3 *SphereColorBuff;
 static uint *SphereIndices;
 static uint sphere_element_buffer;
 
+static Rectangle CubeRects[6];
 
 void generate_sphere_vertices( ){
   SphereVertices = array_allocate( v3, 10000 ); 
@@ -169,6 +171,50 @@ void generate_sphere_vertices( ){
     }
   }
   return;
+}
+
+void generate_cube_rects( ){
+  Rectangle front, back, left, right, top, bot;
+
+  front.p0 = { -0.5f, -0.5f, 0.5f };
+  back.p0 =  { -0.5f, -0.5f, -0.5f };
+  right.p0 = {  0.5f, -0.5f, -0.5f };
+  left.p0 =  { -0.5f, -0.5f, -0.5f };
+  top.p0 =   { -0.5f, 0.5f, -0.5f };
+  bot.p0 =   { -0.5f, -0.5f, -0.5f };
+
+  front.s1 = { 1.0f,0.0f,0.0f }; front.s2 = { 0.0f, 1.0f, 0.0f };
+  back.s1 =  { 1.0f,0.0f,0.0f }; back.s2 =  { 0.0f, 1.0f, 0.0f };
+
+  right.s1 = { 0.0f,0.0f,1.0f }; right.s2 = { 0.0f, 1.0f, 0.0f };
+  left.s1 = { 0.0f,0.0f,1.0f }; left.s2 = { 0.0f, 1.0f, 0.0f };
+
+  top.s1 = { 1.0f,0.0f,0.0f }; top.s2 = { 0.0f, 0.0f, 1.0f };
+  bot.s1 = { 1.0f,0.0f,0.0f }; bot.s2 = { 0.0f, 0.0f, 1.0f };
+
+  front.n = { 0.0f, 0.0f, 1.0f }; 
+  back.n = { 0.0f, 0.0f, -1.0f }; 
+
+  right.n = { 1.0f, 0.0f, 0.0f }; 
+  left.n = { -1.0f, 0.0f, 0.0f }; 
+
+  top.n = { 0.0f, 1.0f, 0.0f }; 
+  bot.n = { 0.0f, -1.0f, 0.0f }; 
+
+  front.l1 = front.l2 = 1.0f;
+  back.l1 = back.l2 = 1.0f;
+  right.l1 = right.l2 = 1.0f;
+  left.l1 = left.l2 = 1.0f;
+  top.l1 = top.l2 = 1.0f;
+  bot.l1 = bot.l2 = 1.0f;
+
+  CubeRects[ 0 ] = front;
+  CubeRects[ 1 ] = back;
+  CubeRects[ 2 ] = right;
+  CubeRects[ 3 ] = left;
+  CubeRects[ 4 ] = top;
+  CubeRects[ 5 ] = bot;
+
 }
 
 struct Camera {
@@ -1100,15 +1146,24 @@ struct World {
     STATE_FREE_VIEW = 1,
     STATE_DETACHED,
     STATE_ON_HOLD,
-    STATE_SELECTED
+    STATE_SELECTED,
+    STATE_VIEW_CAMERA,
   };
 
   State state;
   bool show_imgui;
 
+  m4 ui_perspective;
+  m4 view_perspective;
+  f32 ui_vfov, ui_near_plane, ui_far_plane;
+  f32 view_vfov, view_near_plane, view_far_plane;
+
   m4 perspective;
 
-  Camera camera;
+  Camera ui_camera;
+  Camera view_camera;
+
+  Camera *camera;
 
   Grid grid;
   Cube cube;
@@ -1723,7 +1778,7 @@ void world_draw_sphere( uint vao, const Sphere &s, const m4 &mvp ){
 
 
 void draw_world( const World &w ){
-  m4 v = w.camera.transform();  
+  m4 v = w.camera->transform();  
   m4 vp = w.perspective*v;
   world_draw_grid( w.grid_vao,w.grid,vp);
 
@@ -1823,7 +1878,7 @@ void draw_world( const World &w ){
   glUseProgram( simple_color_shader_info.id );
   
   glUniform3fv(simple_color_shader_info.view_pos_loc,
-      1, w.camera.P.Elements );
+      1, w.camera->P.Elements );
 
   uint loop_count =  array_length( w.light_pos ) < 4 ? 
                      array_length( w.light_pos ) : 4;
@@ -2158,15 +2213,192 @@ bool hit_world(
   return hit_anything;
 }
 
+
+void dump_texture_data(
+    DumpObjectData &data,
+    v3 *tex_store,
+    uint index )
+{
+  switch ( data.texture_type ){
+    case DumpObjectData::TEXTURE_PLAIN_COLOR:
+      data.texture_data.color = tex_store[index];
+      break;
+    case DumpObjectData::TEXTURE_CHECKER:
+      data.texture_data.checker_color[0] = v3{0.0f,0.0f,0.0f};
+      data.texture_data.checker_color[1] = v3{1.0f,1.0f,1.0f};
+      break;
+    case DumpObjectData::TEXTURE_MARBLE:
+      data.texture_data.marble_color = tex_store[index];
+      break;
+    default:
+      break;
+  }
+}
+
+void world_dump_rect_data( const World &w, DumpObjectData *store ){
+  Rectangle *rects = w.rects;
+  for ( uint i = 0; i < array_length( rects ); i++ ){
+    DumpObjectData data;
+    data.type = DumpObjectData::RECTANGLE;
+    data.r = rects[i];
+    data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
+    data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
+    dump_texture_data( data, w.rect_colors, i );
+    array_push( store, data );
+  }
+}
+
+void world_dump_sphere_data( const World &w, DumpObjectData *store ){
+  Sphere *spheres= w.spheres;
+  for ( uint i = 0; i < array_length( spheres ); i++ ){
+    DumpObjectData data;
+    data.type = DumpObjectData::SPHERE;
+    data.sphere = spheres[i];
+    data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
+    data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
+    dump_texture_data( data, w.sphere_colors, i );
+    array_push( store, data );
+  }
+}
+
+void apply_cube_transform_to_rect( Rectangle &r, Cube &cube ){
+  q4 quat = cube.orientation;
+  v3 point = v3{0.0f,0.0f,0.0f};
+
+  r.p0 = rotate_point_by_quaternion( r.p0, point, quat );
+  r.s1 = rotate_vector_by_quaternion( r.s1, quat );
+  r.s2 = rotate_vector_by_quaternion( r.s2, quat );
+
+
+  r.n = rotate_vector_by_quaternion( r.n, quat );
+  r.l1 = cube.length;
+  r.l2 = cube.length;
+
+  r.p0 += cube.pos;
+
+}
+
+void world_dump_cube_data( const World &w, DumpObjectData *store ){
+  Cube *cubes = w.cubes;
+  for ( uint i = 0; i < array_length( cubes ); i++ ){
+    for ( uint faces = 0; faces < 6; faces++ ){
+      DumpObjectData data;
+      data.type = DumpObjectData::RECTANGLE;
+  // Apply cube transformation to the rectangle
+      Rectangle r = CubeRects[ i ];
+      apply_cube_transform_to_rect(r, w.cubes[i] );
+      data.r = r;
+
+      data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
+      data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
+
+      dump_texture_data( data, w.cubes[i].color,faces);
+      array_push( store, data );
+    }
+  }
+}
+
+void world_dump_light_rect_data(
+    const World &w,
+    DumpObjectData *store )
+{
+  Rectangle *rects = w.light_rects;
+  for ( uint i = 0; i < array_length( rects ); i++ ){
+    DumpObjectData data;
+    data.type = DumpObjectData::RECTANGLE;
+    data.r = rects[i];
+    data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
+    data.material_data.diff_light_color = 
+      w.light_rect_color[ i ];
+    array_push( store, data );
+  }
+}
+
+void world_dump_light_sphere_data(
+    const World &w,
+    DumpObjectData *store )
+{
+  Sphere *spheres= w.light_spheres;
+  for ( uint i = 0; i < array_length( spheres ); i++ ){
+    DumpObjectData data;
+    data.type = DumpObjectData::SPHERE;
+    data.sphere = spheres[i];
+    data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
+    data.material_data.diff_light_color = w.light_sphere_color[ i ];
+    array_push( store, data );
+  }
+}
+
+void world_dump_light_cube_data(
+    const World &w,
+    DumpObjectData *store )
+{
+  Cube *cubes = w.light_cubes;
+  for ( uint i = 0; i < array_length( cubes ); i++ ){
+    for ( uint faces = 0; faces < 6; faces++ ){
+      DumpObjectData data;
+      data.type = DumpObjectData::RECTANGLE;
+  // Apply cube transformation to the rectangle
+      Rectangle r = CubeRects[ i ];
+      apply_cube_transform_to_rect( r, w.cubes[i] );
+      data.r = r;
+      data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
+      array_push( store, data );
+    }
+  }
+}
+
+
+void world_dump_scene_to_file(
+    const World &w,
+    const char *file )
+{
+  DumpObjectData *data_store = array_allocate( DumpObjectData, 100 );
+  DumpCameraData cam;
+  cam.look_from = w.view_camera.P;
+  cam.look_at = w.view_camera.P + w.view_camera.F;
+  cam.z = w.view_near_plane;
+  cam.vfov = w.view_vfov;
+  cam.aspect_ratio = (f32)ScreenWidth/ScreenHeight;
+  cam.aperture = 0.0f;
+  cam.focal_dist = 1.0f;
+
+  world_dump_rect_data( w, data_store );
+  world_dump_cube_data( w, data_store );
+  world_dump_sphere_data( w, data_store );
+  world_dump_light_cube_data( w, data_store );
+  world_dump_light_sphere_data( w, data_store );
+  world_dump_light_rect_data( w, data_store );
+
+  FILE *fp = fopen(file,"wb");
+  if( !fp ){
+    perror("Unable to open file for output!: ");
+    array_free( data_store );
+    return;
+  }
+  fwrite( &cam, sizeof(cam), 1, fp );
+  uint32 len = array_length( data_store );
+  fwrite( &len, sizeof(len), 1, fp );
+  fwrite( data_store,
+      sizeof(*data_store),
+      array_length( data_store ),
+      fp );
+  fclose( fp );
+  array_free( data_store );
+  return;
+}
+
 int main(){
 
   generate_sphere_vertices();
-
+  bool dump_scene_data = false;
+  uint dump_count = 0;
+  generate_cube_rects();
   glfwInit();
   glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, 4 );
   glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, 3 );
   glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
-  GLFWwindow* window = glfwCreateWindow( SCREEN_WIDTH, SCREEN_HEIGHT,
+  GLFWwindow* window = glfwCreateWindow( ScreenWidth,ScreenHeight,
                        "OpenGl", NULL, NULL );
   if ( !window ){
       print_error("Unable to open window!");
@@ -2245,18 +2477,35 @@ int main(){
             0.0f,
             0.1f,
             v3{0.0f,0.0f,1.0f} );
-
-  w.perspective= HMM_Perspective(45,
+  
+  w.ui_vfov = 45;
+  w.ui_near_plane = 0.1f;
+  w.ui_far_plane = 10.0f;
+  w.ui_perspective= HMM_Perspective(45,
                   (float)ScreenWidth/ScreenHeight,
                   0.1f, 10.0f );
+  w.view_vfov = 45;
+  w.view_near_plane = 0.1f;
+  w.view_far_plane = 10.0f;
+  w.view_perspective = HMM_Perspective(w.view_vfov,
+                  (float)ScreenWidth/ScreenHeight,
+                  w.view_near_plane, w.view_far_plane );
+  w.perspective = w.ui_perspective;
+
   uint current_screen_width = ScreenWidth;
   uint current_screen_height = ScreenHeight;
-  w.camera = Camera( 
+  w.ui_camera = Camera( 
             v3{ 0.0f, 0.5f, 5.0f },
             v3{ 0.0f, 0.5f, -1.0f },
             v3{ 0.0f, 1.0f, 0.0f }
             );
-  Camera &camera = w.camera;
+
+  w.view_camera = Camera( 
+            v3{ 0.0f, 0.5f, 5.0f },
+            v3{ 0.0f, 0.5f, -1.0f },
+            v3{ 0.0f, 1.0f, 0.0f }
+            );
+
 
   Cube cube = create_cube_one_color( 0.5f, v3{-1,0.5f,-2}, v3 {0,1,0} );
 
@@ -2350,47 +2599,67 @@ int main(){
   glBindVertexArray( 0 );
   world_add_cube( w, &cube );
   world_add_sphere( w,
-          Sphere( v3{0.0f,0.5f,0.0f}, 0.5f ) , v3 {1.0f,0.0f,0.0f} );
+          create_sphere( v3{0.0f,0.5f,0.0f}, 0.5f ) , v3 {1.0f,0.0f,0.0f} );
   world_add_rect( w, 
       create_rectangle( v3{-1.0f,2.0f,3.0f } ), v3{0.5f,0.2f,0.8f} );
   world_generate_grid_data(w, w.grid );
 #define WORLD_SET_STATE_FREE_VIEW \
   do {\
+    w.camera = &w.ui_camera;\
+    w.perspective = w.ui_perspective;\
     w.state = World::STATE_FREE_VIEW;\
     w.show_imgui = false;\
-    w.camera.should_rotate = true;\
-    w.camera.should_move = true;\
+    w.camera->should_rotate = true;\
+    w.camera->should_move = true;\
     w.is_selected = false;\
     glfwSetCursorPosCallback( window, mouse_callback );\
   } while ( 0 )
 
 #define WORLD_SET_STATE_DETACHED\
   do {\
+    w.camera = &w.ui_camera;\
+    w.perspective = w.ui_perspective;\
     w.state = World::STATE_DETACHED;\
     w.show_imgui = true;\
-    w.camera.should_rotate = false;\
-    w.camera.should_move = true;\
+    w.camera->should_rotate = false;\
+    w.camera->should_move = true;\
     w.is_selected = false;\
     glfwSetCursorPosCallback( window, NULL );\
   } while ( 0 )
 
 #define WORLD_SET_STATE_SELECTED\
   do {\
+    w.camera = &w.ui_camera;\
+    w.perspective = w.ui_perspective;\
     w.state = World::STATE_SELECTED;\
     w.show_imgui = true;\
-    w.camera.should_rotate = false;\
-    w.camera.should_move = false;\
+    w.camera->should_rotate = false;\
+    w.camera->should_move = false;\
     glfwSetCursorPosCallback( window, NULL );\
   } while ( 0 )
 
 #define WORLD_SET_STATE_ON_HOLD\
   do {\
+    w.camera = &w.ui_camera;\
+    w.perspective = w.ui_perspective;\
     w.state = World::STATE_ON_HOLD;\
     w.show_imgui = false;\
-    w.camera.should_rotate = false;\
-    w.camera.should_move = true;\
+    w.camera->should_rotate = false;\
+    w.camera->should_move = true;\
     w.is_holding = true;\
     glfwSetCursorPosCallback( window, NULL );\
+  } while ( 0 )
+
+#define WORLD_SET_STATE_VIEW_CAMERA\
+  do {\
+    w.camera = &w.view_camera;\
+    w.perspective = w.view_perspective;\
+    w.state = World::STATE_VIEW_CAMERA;\
+    w.show_imgui = true;\
+    w.camera->should_rotate = true;\
+    w.camera->should_move = true;\
+    w.is_holding = false;\
+    glfwSetCursorPosCallback( window, mouse_callback );\
   } while ( 0 )
   
 
@@ -2402,7 +2671,7 @@ int main(){
   m4 vp = HMM_Mat4d(1.0f);
   double cp[2];
   glfwGetCursorPos( window, &cp[0], &cp[1] );
-  const float camera_sensitivity = 0.5f;
+  f32 camera_sensitivity = 0.5f;
 
   uint8 *key_map = (uint8 *)malloc( sizeof(uint8) * 400 );
   memset( key_map, 0, 400 * sizeof(uint8) );
@@ -2427,6 +2696,7 @@ int main(){
   bool show_another_window = false;
   ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+  w.camera = &w.ui_camera;
   WORLD_SET_STATE_FREE_VIEW;
 
   while ( !glfwWindowShouldClose( window  ) ){
@@ -2437,9 +2707,18 @@ int main(){
     if ( current_screen_width != ScreenWidth ||
         current_screen_height != ScreenHeight )
     {
-      w.perspective= HMM_Perspective(45,
+      w.ui_perspective= HMM_Perspective(w.ui_vfov,
                   (float)ScreenWidth/ScreenHeight,
-                  0.1f, 10.0f );
+                  w.ui_near_plane, w.ui_far_plane );
+      w.view_perspective= HMM_Perspective(w.view_vfov,
+                  (float)ScreenWidth/ScreenHeight,
+                  w.view_near_plane, w.view_far_plane );
+
+      if ( w.state == World::STATE_VIEW_CAMERA ){
+        w.perspective = w.view_perspective;
+      } else {
+        w.perspective = w.ui_perspective;
+      }
       current_screen_width = ScreenWidth;
       current_screen_height = ScreenHeight;
     }
@@ -2451,9 +2730,18 @@ int main(){
       switch ( Event_Queue[i].type ){
         case MOUSE_MOVE:
         {
-          float dx = Event_Queue[i].xp - cp[0];
-          float dy = Event_Queue[i].yp - cp[1];
-          camera.rotate( camera_sensitivity*dx,
+          f32 dx = Event_Queue[i].xp - cp[0];
+          f32 dy = Event_Queue[i].yp - cp[1];
+#if 0
+          if ( w.state == World::STATE_VIEW_CAMERA ){
+          w.camera->rotate( -camera_sensitivity*dx,
+                         -camera_sensitivity*dy );
+          } else {
+          w.camera->rotate( camera_sensitivity*dx,
+                         camera_sensitivity*dy );
+          }
+#endif
+          w.camera->rotate( camera_sensitivity*dx,
                          camera_sensitivity*dy );
           cp[0] = Event_Queue[i].xp;
           cp[1] = Event_Queue[i].yp;
@@ -2461,11 +2749,12 @@ int main(){
         }
         case MOUSE_RBUTTON_CLICK:
         { 
+          if ( w.state == World::STATE_VIEW_CAMERA ) break;
           HitRecord record;
           v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
-          v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
+          v3 wp = HMM_UnProject( point, w.perspective * w.camera->transform(),
                                  ScreenWidth, ScreenHeight);
-          Ray ray( camera.P, ( wp - camera.P ) );
+          Ray ray( w.camera->P, ( wp - w.camera->P ) );
 
           if ( hit_grid( w.grid, ray, 0.001f, 100.0f, record ) ){
             record.print();
@@ -2490,7 +2779,9 @@ int main(){
         case MOUSE_LBUTTON_CLICK:
         {
           switch ( w.state ){
-            case World::STATE_SELECTED: break; 
+            case World::STATE_VIEW_CAMERA:
+            case World::STATE_SELECTED:
+              break; 
             case World::STATE_FREE_VIEW: case World::STATE_DETACHED:
             {
               glfwGetCursorPos( window, &cp[0], &cp[1] );
@@ -2498,9 +2789,9 @@ int main(){
 
               v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
               v3 wp = HMM_UnProject( point,
-                  w.perspective * w.camera.transform(),
+                  w.perspective * w.camera->transform(),
                   ScreenWidth, ScreenHeight );
-              Ray ray( camera.P, ( wp - camera.P ) );
+              Ray ray( w.camera->P, ( wp - w.camera->P ) );
               if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
                 w.is_selected = record.obj.type != OBJECT_GRID;
 
@@ -2608,9 +2899,9 @@ int main(){
 
               v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
               v3 wp = HMM_UnProject( point,
-                  w.perspective * w.camera.transform(),
+                  w.perspective * w.camera->transform(),
                   ScreenWidth, ScreenHeight );
-              Ray ray( camera.P, ( wp - camera.P ) );
+              Ray ray( w.camera->P, ( wp - w.camera->P ) );
 
               if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
                 if( record.obj.type == OBJECT_GRID ){
@@ -2637,7 +2928,7 @@ int main(){
                     }
                     case 1:
                     {
-                      Sphere s( record.p, 0.5f );
+                      Sphere s = create_sphere( record.p, 0.5f );
                       world_add_sphere( w,s,v3{0.5f,0.2f,0.0f} );
                       WORLD_SET_STATE_SELECTED;
                       w.sel_sphere_radius = 0.5f;
@@ -2690,7 +2981,7 @@ int main(){
                     }
                     case 4:
                     {
-                      Sphere s( record.p, 0.5f );
+                      Sphere s = create_sphere( record.p, 0.5f );
                       world_add_light_sphere( w,s,v3{1.0f,1.0f,1.0f} );
                       WORLD_SET_STATE_SELECTED;
                       w.sel_sphere_radius = 0.5f;
@@ -2736,62 +3027,68 @@ int main(){
           }
         }
         break;
+
+
+#define SELECTED_MOVE_DIST 0.04f
+#define SELECTED_MOVE_UP v3{0.0f,1.0f,0.0f}
+#define SELECTED_MOVE_RIGHT v3{1.0f,0.0f,0.0f}
+#define SELECTED_MOVE_FRONT v3{0.0f,0.0f,-1.0f}
 #if 1
         case KB_PRESS_W: case KB_REPEAT_W:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 2, 0.2f ,100);
+            w.camera->start_animate( 2, 0.2f ,100);
           } else {
             w.selected_move( w.selected_data,
-                0.1f, camera.F,
+                SELECTED_MOVE_DIST, SELECTED_MOVE_FRONT,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
 
         case KB_PRESS_S:case KB_REPEAT_S:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 2, -0.2f ,100);
+            w.camera->start_animate( 2, -0.2f ,100);
           } else {
             w.selected_move( w.selected_data,
-                -0.1f, camera.F,
+                -SELECTED_MOVE_DIST, SELECTED_MOVE_FRONT,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
 
         case KB_PRESS_A:case KB_REPEAT_A:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 0, -0.2f ,100);
+            w.camera->start_animate( 0, -0.2f ,100);
           } else {
             w.selected_move( w.selected_data,
-                -0.1f, camera.S,
+                -SELECTED_MOVE_DIST, SELECTED_MOVE_RIGHT,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
 
         case KB_PRESS_D:case KB_REPEAT_D:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 0, 0.2f ,100);
+            w.camera->start_animate( 0, 0.2f ,100);
           } else {
             w.selected_move( w.selected_data,
-                0.1f, camera.S,
+                SELECTED_MOVE_DIST, SELECTED_MOVE_RIGHT,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
 
         case KB_PRESS_I:case KB_REPEAT_I:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 1, 0.2f ,300);
+            w.camera->start_animate( 1, 0.2f ,300);
           } else {
             w.selected_move( w.selected_data,
-                0.1f, camera.U,
+                SELECTED_MOVE_DIST, SELECTED_MOVE_UP,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
         case KB_PRESS_K:case KB_REPEAT_K:
           if ( w.state != World::STATE_SELECTED ){
-            camera.start_animate( 1, -0.2f ,300);
+            w.camera->start_animate( 1, -0.2f ,300);
           } else {
             w.selected_move( w.selected_data,
-                -0.1f, camera.U,
+                -SELECTED_MOVE_DIST, SELECTED_MOVE_UP,
          w.model_matrices[w.selected_object.type][w.selected_object.index] );
           }
           break;
@@ -2805,7 +3102,7 @@ int main(){
           w.object_select_dropdown = 0;
           break;
         case KB_PRESS_P:
-          camera.print();
+          w.camera->print();
           break;
         case KB_RELEASE_W:
           if ( !( key_map[KB_KEY_S] || key_map[KB_KEY_A] ||
@@ -2813,7 +3110,7 @@ int main(){
                   key_map[KB_KEY_K] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_RELEASE_S:
@@ -2822,7 +3119,7 @@ int main(){
                   key_map[KB_KEY_K] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_RELEASE_A:
@@ -2831,7 +3128,7 @@ int main(){
                   key_map[KB_KEY_K] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_RELEASE_D:
@@ -2840,7 +3137,7 @@ int main(){
                   key_map[KB_KEY_K] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_RELEASE_I:
@@ -2849,7 +3146,7 @@ int main(){
                   key_map[KB_KEY_K] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_RELEASE_K:
@@ -2858,16 +3155,27 @@ int main(){
                   key_map[KB_KEY_W] )
              )
           {
-            camera.state = Camera::STATIC;
+            w.camera->state = Camera::STATIC;
           }
           break;
         case KB_PRESS_ESCAPE:
-          if ( w.state == World::STATE_DETACHED ||
-               w.state == World::STATE_SELECTED )
-          {
-              WORLD_SET_STATE_FREE_VIEW;
+          w.camera = &w.ui_camera;
+          if ( !(w.state == World::STATE_FREE_VIEW ) ){
+            w.camera = &w.ui_camera;
+            WORLD_SET_STATE_FREE_VIEW;
           } else {
-              WORLD_SET_STATE_DETACHED;
+            WORLD_SET_STATE_DETACHED;
+          }
+          break;
+        case KB_PRESS_C:
+          if ( !(w.state == World::STATE_VIEW_CAMERA ) ){
+            w.camera = &w.view_camera;
+            w.perspective = w.view_perspective;
+            WORLD_SET_STATE_VIEW_CAMERA;
+          } else {
+            w.camera = &w.ui_camera;
+            w.perspective = w.ui_perspective;
+            WORLD_SET_STATE_FREE_VIEW;
           }
           break;
         case KB_PRESS_Q: case KB_REPEAT_Q:
@@ -2889,21 +3197,30 @@ int main(){
           break;
       }
     }
-    glfwSetCursorPosCallback( window, mouse_callback );
-    camera.update( dt );
+    w.camera->update( dt );
+    if ( w.state == World::STATE_FREE_VIEW ||
+         w.state == World::STATE_VIEW_CAMERA )
+    {
+      glfwSetCursorPosCallback( window, mouse_callback );
+    }
+
     Event_Count = 0;
     glClearColor(0.0f,0,0,1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
     // the deatched state hover
-    if ( w.state == World::STATE_DETACHED || w.state == World::STATE_ON_HOLD ){
-      glfwGetCursorPos( window, &cp[0], &cp[1] );
+    if ( w.state == World::STATE_DETACHED || w.state == World::STATE_ON_HOLD||
+         w.state == World::STATE_VIEW_CAMERA 
+        )
+    {
+      if ( w.state != World::STATE_VIEW_CAMERA )
+        glfwGetCursorPos( window, &cp[0], &cp[1] );
       HitRecord record;
 
       v3 point = v3{ ( float )cp[0], (float)cp[1], 0.0f };
-      v3 wp = HMM_UnProject( point, w.perspective * w.camera.transform(),
+      v3 wp = HMM_UnProject( point, w.perspective * w.camera->transform(),
           ScreenWidth, ScreenHeight );
-      Ray ray( camera.P, ( wp - camera.P ) );
+      Ray ray( w.camera->P, ( wp - w.camera->P ) );
 
       if ( hit_world( w, ray, 0.001f, 100.0f, record ) ){
         if ( record.obj.type == OBJECT_GRID ){
@@ -2944,7 +3261,7 @@ int main(){
       ImGui_ImplOpenGL3_NewFrame();
       ImGui_ImplGlfw_NewFrame();
       ImGui::NewFrame();
-
+#define SLIDER_UPPER_LIMIT 5.0f
       // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
       if ( show_demo_window ){ ImGui::ShowDemoWindow(&show_demo_window); }
 
@@ -2976,7 +3293,7 @@ int main(){
             w.cube_face_color.Elements );
         ImGui::SliderFloat("Cube Length",
                            &w.sel_cube_length,
-                           0.01f, 3.0f, "ratio = %.3f");
+                           0.05f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
 
       } else if ( w.selected_object.type == OBJECT_SPHERE ){
         w.sphere_face_color = w.sphere_colors[ i ];
@@ -2984,7 +3301,7 @@ int main(){
             w.sphere_face_color.Elements );
         ImGui::SliderFloat("Sphere Radius",
                            &w.sel_sphere_radius,
-                           0.01f, 3.0f, "ratio = %.3f");
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
         
       } else if ( w.selected_object.type == OBJECT_RECT ){
         // TODO: Two sliders
@@ -2996,23 +3313,44 @@ int main(){
         }
         ImGui::SliderFloat("Rectangle length 1",
                            &w.sel_rect_l1,
-                           0.01f, 3.0f, "ratio = %.3f");
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
         ImGui::SliderFloat("Rectangle length 3",
                            &w.sel_rect_l2,
-                           0.01f, 3.0f, "ratio = %.3f");
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
 
       } else if ( w.selected_object.type != OBJECT_GRID ) {
         v3 *color;
         switch ( w.selected_object.type ){
           case OBJECT_LIGHT_RECT:
-            color = &w.light_rect_face_color;
-            w.light_rect_face_color= w.light_rect_color[i]; break;
+            {
+              color = &w.light_rect_face_color;
+              w.light_rect_face_color= w.light_rect_color[i];
+        ImGui::SliderFloat("Rectangle length 1",
+                           &w.sel_rect_l1,
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+        ImGui::SliderFloat("Rectangle length 3",
+                           &w.sel_rect_l2,
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+            }
+            break;
           case OBJECT_LIGHT_SPHERE:
-            color = &w.light_sphere_face_color;
-            w.light_sphere_face_color = w.light_sphere_color[i]; break;
+            {
+              color = &w.light_sphere_face_color;
+              w.light_sphere_face_color = w.light_sphere_color[i];
+        ImGui::SliderFloat("Sphere Radius",
+                           &w.sel_sphere_radius,
+                           0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+            }
+            break;
           case OBJECT_LIGHT_CUBE_INSTANCE:
-            color = &w.light_cube_face_color;
-            w.light_cube_face_color= w.light_cube_color[i]; break;
+            {
+              color = &w.light_cube_face_color;
+              w.light_cube_face_color= w.light_cube_color[i];
+              ImGui::SliderFloat("Cube Length",
+                           &w.sel_cube_length,
+                           0.05f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+            }
+            break;
           default: break;
         }
         ImGui::ColorEdit3("Change Color",
@@ -3065,15 +3403,24 @@ int main(){
         {
           Cube *cube =w.light_cubes + i;
           w.light_cube_color[i] = w.light_cube_face_color;
+          f32 l = w.sel_cube_length;
           world_add_light_cube_vertex_data(w,i);
+          cube_scale( cube, v3{l,l,l},
+                      w.model_matrices[OBJECT_LIGHT_CUBE_INSTANCE][i] );
         }
           break;
         case OBJECT_LIGHT_SPHERE:
-          w.light_sphere_color[i] = w.light_sphere_face_color;
-          world_add_light_sphere_vertex_data(w,i);
+          {
+            w.light_sphere_color[i] = w.light_sphere_face_color;
+            world_add_light_sphere_vertex_data(w,i);
+            f32 l = w.sel_sphere_radius;
+            sphere_scale(w.light_spheres+i, v3{l,l,l},
+                w.model_matrices[OBJECT_LIGHT_SPHERE][i] );
+          }
           break;
         case OBJECT_LIGHT_RECT:
           w.light_rect_color[i] = w.light_rect_face_color;
+          rectangle_scale( w.selected_data,w.sel_rect_l1, w.sel_rect_l2 );
           break;
         default:
           break;
@@ -3090,6 +3437,12 @@ int main(){
         ImGui::Combo("combo",
                      &w.hold_object_id,
                      world_objects, IM_ARRAYSIZE(world_objects));
+
+        dump_scene_data = ImGui::Button("Dump Scene Data");
+
+        ImGui::End();
+      } else if ( w.state == World::STATE_VIEW_CAMERA ){
+        ImGui::Begin( "Camera Properties" );
         ImGui::End();
       }
 
@@ -3112,6 +3465,13 @@ int main(){
     array_clear( w.boxes );
     array_clear( w.light_pos );
     array_clear( w.light_colors );
+
+    if ( dump_scene_data ){
+      dump_scene_data = false;
+      char buff[256];
+      snprintf( buff, 256, "./bin/dump_file%d.dat", dump_count );
+      world_dump_scene_to_file( w,buff );
+    }
   }
   glfwTerminate();
 }

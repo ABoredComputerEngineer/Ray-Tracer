@@ -6,12 +6,12 @@ SRC = ./src
 CC = g++
 
 DBFLAGS = -g3 -gdwarf-2 -msse -msse2 -msse3 -Wall\
-					-DIMGUI_IMPL_OPENGL_LOADER_GLAD
-OFLAGS = -O3 -msse -msse2 -msse3 -Wall
+					-DIMGUI_IMPL_OPENGL_LOADER_GLAD -std=c++11
+OFLAGS = -O3 -msse -msse2 -msse3 -Wall -std=c++11
 LIBFLAGS = `pkg-config --static --libs glfw3`
 BIN = ./bin
 HEADER_FILES = $(SRC)/*.h
-OBJS = main.o common.o
+OBJS = ray.o common.o
 
 UI_CORE_OBJS := glad.o ui.o HandmadeMath.o ui_primitives.o ui_objects.o common.o
 

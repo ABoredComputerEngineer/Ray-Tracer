@@ -198,7 +198,7 @@ inline void rectangle_rotate( void *c, float deg, v3 axis, m4 &model ){
   r.p2 = r.p0 + r.l1 * r.s1 + r.l2 * r.s2;
   r.p3 = r.p0 + r.l2 * r.s2;
 
-  r.n = HMM_NormalizeVec3( HMM_Cross( r.s1,r.s2 ) );
+  r.n = rotate_vector_by_quaternion( r.n, quat );
 }
 
 inline void rectangle_scale( void *rect, f32 l1, f32 l2 ){
