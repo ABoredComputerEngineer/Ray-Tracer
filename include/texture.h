@@ -45,6 +45,7 @@ struct Texture {
     v3 color;
     struct {
       v3 checker_color[2];
+      float freq;
     };
 
     struct {
@@ -62,7 +63,8 @@ v3 get_plain_tex_color( Texture *tex, float u, float v, const v3 &p ){
 }
 
 v3 get_checker_tex_color( Texture *tex, float u, float v, const v3 &p ){
-  int x = ( sin(p.X*10)  * sin(p.Y*10) * sin( p.Z *10 ) ) < 0;
+  float f = tex->freq;
+  int x = ( sin(p.X*f)  * sin(p.Y*f) * sin( p.Z *f ) ) < 0;
   return tex->checker_color[x];
 }
 
@@ -100,12 +102,13 @@ Texture create_texture_plain( v3 color ){
   return tex;
 }
 
-Texture create_texture_checker( v3 c0, v3 c1 ){
+Texture create_texture_checker( v3 c0, v3 c1 ,float freq ){
   Texture tex;
   tex.type = Texture::CHECKER;
   tex.get_color = get_checker_tex_color;
   tex.checker_color[0] = c0;
   tex.checker_color[1] = c1;
+  tex.freq = freq;
   return tex;
 }
 

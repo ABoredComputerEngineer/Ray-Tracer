@@ -4,6 +4,7 @@ in vec3 Normal;
 in vec3 Fpos; // fragment position
 in vec3 color;
 in vec3 vpos;
+in vec2 tex_coords;
 
 struct PointLight{
   vec3 pos;
@@ -15,6 +16,7 @@ uniform int num_lights;
 uniform vec3 amb;
 
 out vec4 frag_color;
+uniform sampler2D texture0;
 
 vec3 calculate_point_light( PointLight light, vec3 fpos, vec3 n, vec3 view_dir)
 {
@@ -38,8 +40,9 @@ void main(){
     vec3 view_dir = normalize( vpos - Fpos );
     result += calculate_point_light( light, Fpos, Norm, view_dir );
   }
-  vec3 final = ( result + amb ) * color;
-  frag_color = vec4( final, 1.0f );
+  vec4 c = texture(texture0, tex_coords ) * vec4(color, 1.0);  
+  vec4 final = vec4( ( result + amb ),1.0f ) * c;
+  frag_color = final;
 }
 
 //void main(){

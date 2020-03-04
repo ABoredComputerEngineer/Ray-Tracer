@@ -28,11 +28,10 @@ struct DumpObjectData {
   };
 
   enum DumpTextureType: uint8 {
-    TEXTURE_NONE,
-    TEXTURE_PLAIN_COLOR,
+    TEXTURE_PLAIN_COLOR = 0,
     TEXTURE_CHECKER,
+    TEXTURE_MARBLE,
     TEXTURE_PERLIN_NOISE,
-    TEXTURE_MARBLE
   };
 
   uint8 type;
@@ -74,6 +73,7 @@ struct DumpObjectData {
 
     struct {
       v3 checker_color[2];
+      f32 freq;
     };
     struct {
       v3 marble_color;

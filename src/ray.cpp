@@ -358,7 +358,7 @@ Material create_material_metallic( Texture &tex, float fuzz ){
 Material create_material_glass( Texture &tex, float ri ){
   Material m;
   m.type = MATERIAL_GLASS;
-  m.scatter = metallic_scatter;
+  m.scatter = refraction_scatter;
   m.albedo = &tex;
   m.ri = ri;
   return m;
@@ -885,7 +885,7 @@ v3 get_ray_color(
     v3 end = { 0.5f, 0.7f, 1.0f };
     return ( 1.0 - t ) * start + t * end;
 #else
-    return v3{0.03f,0.03f,0.03f};
+    return v3{0.0f,0.0f,0.0f};
 #endif
 }
 
@@ -987,14 +987,13 @@ void world_decode_sphere_data(
 Texture dump_get_texture( const DumpObjectData &d, Perlin *perlin){
   Texture t;
   switch( d.texture_type ){
-    case DumpObjectData::TEXTURE_NONE:
-      break;
     case DumpObjectData::TEXTURE_PLAIN_COLOR:
       t = create_texture_plain( d.texture_data.color );
       break;
     case DumpObjectData::TEXTURE_CHECKER:
       t = create_texture_checker( d.texture_data.checker_color[0],
-                                  d.texture_data.checker_color[1] );
+                                  d.texture_data.checker_color[1],
+                                  d.texture_data.freq );
       break;
     case DumpObjectData::TEXTURE_MARBLE:
       t = create_texture_marble( perlin,
@@ -1022,6 +1021,7 @@ Material dump_get_material(
       m = create_material_metallic( tex, d.material_data.fuzz );
       break;
     case DumpObjectData::MATERIAL_GLASS:
+      printf("Creating glass material!\n");
       m = create_material_glass( tex, d.material_data.ri);
       break;
     case DumpObjectData::MATERIAL_SPOT_LIGHT:

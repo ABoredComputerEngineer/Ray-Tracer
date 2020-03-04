@@ -18,6 +18,7 @@
 #include "ui_primitives.h"
 #include "ui_objects.h"
 #include "ray_data.h"
+#include "prng.h"
 
 typedef GLuint guint;
 
@@ -105,6 +106,38 @@ static float CubeNormals[] = {
     0.0f, -1.0f, 0.0f,
     0.0f, -1.0f, 0.0f,
     0.0f, -1.0f, 0.0f,
+};
+
+static float CubeTexCoords[] = {
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
+
+    1.0f, 1.0f,
+    0.0f, 1.0f,
+    0.0f, 0.0f,
+    1.0f, 0.0f,
 };
 
 static v3 *SphereVertices;
@@ -973,6 +1006,7 @@ struct SimpleColorShaderProgram {
   uint model_loc;
   uint view_loc;
   uint view_pos_loc;
+  uint texture0_loc;
 
   // Frag. shader
   PointLightLocation point_light_loc[4];
@@ -982,6 +1016,7 @@ struct SimpleColorShaderProgram {
   uint8 pos_id;
   uint8 color_id;
   uint8 normal_id;
+  uint8 tex_coords_id;
 
 };
 
@@ -1051,10 +1086,12 @@ int create_simple_color_shader_program( ){
       "num_lights" );
   simple_color_shader_info.amb_loc = glGetUniformLocation( id, "amb" );
   simple_color_shader_info.view_pos_loc=glGetUniformLocation( id, "view_pos" );
-
+  simple_color_shader_info.texture0_loc = glGetUniformLocation( id,"texture0");
   simple_color_shader_info.pos_id = 0;
   simple_color_shader_info.color_id = 1;
   simple_color_shader_info.normal_id = 2;
+  simple_color_shader_info.tex_coords_id = 3;
+
   glUseProgram( 0 );
   return 0;
 }
@@ -1135,6 +1172,11 @@ struct ColorQuad {
 };
 
 
+struct Image {
+  int h,w,channels;
+  uint8 *data;
+};
+
 struct Light {
   Object object;
   v3 color;
@@ -1142,14 +1184,61 @@ struct Light {
 
 struct Texture {
   enum TextureType {
-    COLOR,
+    COLOR = 0,
+    CHECKER,
     MARBLE,
-    CHECKER 
+  };
+  TextureType type;
+  union {  
+    v3 face_colors[6];
+    v3 color;
+  };
+  Image image;
+};
+
+struct Material {
+  enum MaterialType{
+    METALLIC = 0,
+    PURE_DIFFUSE,
+    GLASS,
   };
   
-  v3 color;
-  uint8 *image_data;
+  MaterialType type;
+  Texture texture;
+  f32 diffuse, specular, shine;
+
 };
+
+Material create_material_diffuse( Texture t ){
+  Material m;
+  m.type =  Material::PURE_DIFFUSE;
+  m.texture = t;
+  m.diffuse = 1.0f;
+  m.specular = 0.0f;
+  m.shine = 0.0f;
+  return m;
+}
+
+
+Material create_material_metallic( Texture t ){
+  Material m;
+  m.type =  Material::METALLIC;
+  m.texture = t;
+  m.diffuse = 0.3f;
+  m.specular = 8.0f;
+  m.shine = 64.0f;
+  return m;
+}
+
+Material create_material_glass( ){
+  Material m;
+  Texture t;
+  t.type = Texture::COLOR;
+  t.color = v3{ 0.0f,0.0f,1.0f };
+  m.type = Material::GLASS;
+  m.texture = t;
+  return m;
+}
 
 struct World {
   enum State {
@@ -1182,6 +1271,10 @@ struct World {
   Cube *cubes;
   Sphere *spheres;
   Rectangle *rects;
+
+  Material *cube_materials;
+  Material *sphere_materials;
+  Material *rect_materials;
  
   v3 *light_pos;
   v3 *light_colors;
@@ -1231,14 +1324,20 @@ struct World {
   v3 cube_face_color;
   v3 cube_side_length;
   f32 sel_cube_length;
+  int cube_material_dropdown;
+  int cube_texture_dropdown;
 
   v3 sphere_face_color;
   f32 sel_sphere_radius;
+  int sphere_material_dropdown;
+  int sphere_texture_dropdown;
 
   v3 rect_face_color;
   int rect_flip_normal;
   f32 sel_rect_l1;
   f32 sel_rect_l2;
+  int rect_material_dropdown;
+  int rect_texture_dropdown;
 
   v3 light_cube_face_color;
   v3 light_sphere_face_color;
@@ -1262,6 +1361,9 @@ struct World {
   m4 *model_matrices[_OBJECT_MAX];
 
   uint color_vao, color_vbo, color_ebo;  
+  uint rect_vao, rect_vbo, rect_ebo;
+
+  uint white_texture, checker_texture, marble_texture;
 
   v3 *color_vertex_data;
   uint *color_vertex_indices;
@@ -1270,15 +1372,15 @@ struct World {
 };
 void world_config_simple_color_shader_buffer(
     uint vao, uint vbo, uint ebo,
-    size_t size
+    size_t vertex_count 
 )
 {
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
 
-  size_t offset=size;
+  size_t offset= sizeof(v3)*vertex_count;
   glBufferData( GL_ARRAY_BUFFER,
-                3 * offset,
+                3 * offset + sizeof(v2) * vertex_count,
                 NULL,
                 GL_STREAM_DRAW );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, ebo);
@@ -1303,10 +1405,19 @@ void world_config_simple_color_shader_buffer(
                          GL_FLOAT, GL_FALSE,
                          sizeof(v3),
                          (void *)( 2 * offset)  );
+
+  glEnableVertexAttribArray( simple_color_shader_info.tex_coords_id );
+  glVertexAttribPointer( simple_color_shader_info.tex_coords_id,
+                         2,
+                         GL_FLOAT, GL_FALSE,
+                         sizeof(v2),
+                         (void *)( 3 * offset)  );
+
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
 }
+
 void world_config_nl_color_shader_buffer(
     uint vao, uint vbo, uint ebo,
     size_t size
@@ -1347,13 +1458,25 @@ void world_config_nl_color_shader_buffer(
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 );
 }
 
-void world_add_cube_vertex_data( uint vao, uint vbo, const Cube &cube ){
-  v3 colors[24];
-  for ( int i = 0; i < 24; i++ ){
-    int index = i / 4;
-    colors[ i ] = cube.color[ index ];
-  }
+#define GLASS_COLOR v3{0.0f,0.0f,1.0f};
 
+void world_add_cube_vertex_data( const World &w, uint index ){
+  v3 colors[24];
+  Material &m = w.cube_materials[index];
+  if ( m.type == Material::GLASS ){
+    for ( int i = 0; i < 24; i++ ){
+      colors[ i ] = GLASS_COLOR;
+    }
+  } else {
+    Texture &tex = m.texture;
+    for ( int i = 0; i < 24; i++ ){
+      int index = i / 4;
+      colors[ i ] = tex.face_colors[ index ];
+    }
+  }
+  
+  uint vao = w.cubes_vao[index];
+  uint vbo = w.cubes_vbo[index];
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
   glBufferSubData( GL_ARRAY_BUFFER, 0, sizeof(CubeVertices), CubeVertices );
@@ -1365,6 +1488,10 @@ void world_add_cube_vertex_data( uint vao, uint vbo, const Cube &cube ){
                    sizeof(CubeVertices) + sizeof(colors),
                    sizeof(CubeNormals),
                    (void *)CubeNormals);
+  glBufferSubData( GL_ARRAY_BUFFER,
+                   3*sizeof(CubeVertices),
+                   sizeof(CubeTexCoords),
+                   (void *)CubeTexCoords );
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
 }
@@ -1373,7 +1500,7 @@ void world_generate_cube_data( uint &vao, uint &vbo, Cube &cube ){
   glGenBuffers( 1, &vbo );
   
   world_config_simple_color_shader_buffer( 
-      vao, vbo, quad_elem_buffer_index, sizeof(CubeVertices) );
+      vao, vbo, quad_elem_buffer_index, 24 );
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
@@ -1415,15 +1542,22 @@ void world_generate_light_cube( uint &vao, uint &vbo, Cube &cube ){
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
 }
 
-void world_add_sphere_vertex_data(
-    uint vao, uint vbo, const Sphere &s,
-    v3 color )
-{
+void world_add_sphere_vertex_data( const World &w, uint index ) {
+  Material &material = w.sphere_materials[index];
+  v3 color = w.sphere_materials[index].texture.color;
+
+  if ( material.type == Material::GLASS ){
+    color = GLASS_COLOR;
+  }
 
   for ( uint i = 0; i < array_length( SphereVertices ); i++ ){
     array_push( SphereColorBuff, color );
   }
+
   size_t data_size = array_length(SphereVertices)*sizeof(*SphereVertices);
+
+  uint vao = w.spheres_vao[index];
+  uint vbo = w.spheres_vbo[index];
 
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
@@ -1457,7 +1591,7 @@ void world_add_light_sphere_vertex_data(
   array_clear( SphereColorBuff );
 }
 
-void world_add_cube( World &w, Cube *cube ){
+void world_add_cube( World &w, Cube *cube, Material m ){
   uint vao, vbo;
   array_push( w.cubes, *cube );
 #if 0
@@ -1467,12 +1601,13 @@ void world_add_cube( World &w, Cube *cube ){
   m4 model = HMM_Translate(cube->pos)*HMM_Scale( v3{ cube->length, cube->length, cube->length } ) ; 
 #endif
   array_push( w.model_matrices[OBJECT_CUBE_INSTANCE],model );
+  array_push( w.cube_materials, m );
 
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
   world_config_simple_color_shader_buffer( vao, vbo, 
       quad_elem_buffer_index,
-      sizeof(CubeVertices) );
+      24 );
 
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
@@ -1481,7 +1616,7 @@ void world_add_cube( World &w, Cube *cube ){
   array_push( w.cubes_vao, vao );
   array_push( w.cubes_vbo, vbo );
 
-  world_add_cube_vertex_data(vao,vbo,*cube);
+  world_add_cube_vertex_data(w, array_length(w.cubes)-1 );
 
 }
 
@@ -1505,25 +1640,24 @@ void world_add_light_cube( World &w, Cube *cube, v3 color ){
 
   array_push( w.light_cubes_vao, vao );
   array_push( w.light_cubes_vbo, vbo );
-
-  world_add_cube_vertex_data(vao,vbo,*cube);
+  world_add_light_cube_vertex_data(w,array_length(w.light_cubes)-1 );
 
 }
 
-void world_add_sphere( World &w, const Sphere &s, v3 color ){
+void world_add_sphere( World &w, const Sphere &s, Material m){
   uint vao, vbo;
   array_push( w.spheres, s );
   m4 transform = HMM_Translate( s.c ) * HMM_Scale( v3{ s.r, s.r,s.r });
   array_push( w.model_matrices[OBJECT_SPHERE], transform );
-  array_push( w.sphere_colors, color );
+  //array_push( w.sphere_colors, color );
+  array_push( w.sphere_materials, m );
 
   glGenVertexArrays( 1, &vao );
   glGenBuffers( 1, &vbo );
-  size_t offset= array_length(SphereVertices)*sizeof(*SphereVertices);
 
   world_config_simple_color_shader_buffer( 
       vao, vbo, sphere_element_buffer,
-      offset ); 
+      array_length(SphereVertices)); 
   
   glBindVertexArray( vao );
   glBindBuffer( GL_ARRAY_BUFFER, vbo );
@@ -1533,6 +1667,11 @@ void world_add_sphere( World &w, const Sphere &s, v3 color ){
                    2 * data_size,
                    data_size,
                    (void *) SphereNormals );
+  glBufferSubData( GL_ARRAY_BUFFER,
+                   3*data_size,
+                   sizeof(v2) * array_length( SphereTextureCoords ),
+                   (void *)SphereTextureCoords );
+
   glBindVertexArray( 0 );
   glBindBuffer( GL_ARRAY_BUFFER, 0 );
   glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, 0 ); 
@@ -1540,7 +1679,7 @@ void world_add_sphere( World &w, const Sphere &s, v3 color ){
   array_push( w.spheres_vao, vao );
   array_push( w.spheres_vbo, vbo );
 
-  world_add_sphere_vertex_data(vao,vbo,s, color);
+  world_add_sphere_vertex_data(w,array_length(w.spheres)-1);
 }
 
 void world_add_light_sphere( World &w, const Sphere &s, v3 color ){
@@ -1576,11 +1715,12 @@ void world_add_light_sphere( World &w, const Sphere &s, v3 color ){
 }
 
 
-void world_add_rect( World &w, const Rectangle &r, v3 color ){
+void world_add_rect( World &w, const Rectangle &r,Material m ){
   array_push( w.rects, r );
   m4 transform = HMM_Mat4d( 1.0f );
+  array_push( w.rect_materials, m );
   array_push( w.model_matrices[OBJECT_RECT], transform );
-  array_push( w.rect_colors, color );
+  //array_push( w.rect_colors, color );
 
 }
 
@@ -1804,6 +1944,7 @@ void draw_world( const World &w ){
 
   for ( uint i = 0; i < array_length( w.light_cubes ); i++ ){
     m4 mvp = vp * cube_models[i];
+
     glBindVertexArray( w.light_cubes_vao[i] );
     glUniformMatrix4fv( nl_color_shader_info.mvp_loc,
                         1,GL_FALSE,
@@ -1892,6 +2033,8 @@ void draw_world( const World &w ){
   // Draw all the lighting stuff
   glUseProgram( simple_color_shader_info.id );
   
+  glUniform1i( simple_color_shader_info.texture0_loc, 0 );
+
   glUniform3fv(simple_color_shader_info.view_pos_loc,
       1, w.camera->P.Elements );
 
@@ -1911,6 +2054,26 @@ void draw_world( const World &w ){
 
   for ( uint i = 0; i < array_length( w.cubes ); i++ ){
     m4 mvp = vp * cube_models[i];
+    Material &material = w.cube_materials[i];
+    Texture &texture = material.texture;
+    glActiveTexture(GL_TEXTURE0);
+
+    if ( material.type == Material::GLASS ){
+      glBindTexture( GL_TEXTURE_2D, w.white_texture );
+    } else {
+      switch ( texture.type ){
+        case Texture::COLOR:
+          glBindTexture( GL_TEXTURE_2D, w.white_texture );
+          break;
+        case Texture::CHECKER:
+          glBindTexture( GL_TEXTURE_2D, w.checker_texture );
+          break;
+        case Texture::MARBLE:
+          glBindTexture( GL_TEXTURE_2D, w.marble_texture );
+          break;
+      }
+    }
+
     glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
                         1,GL_FALSE,
                         HMM_MAT4_PTR(mvp) );
@@ -1925,6 +2088,26 @@ void draw_world( const World &w ){
   sphere_models = w.model_matrices[ OBJECT_SPHERE ];
   for ( uint i = 0; i < array_length( w.spheres ); i++ ){
     m4 mvp = vp * sphere_models[i];
+
+    Material &material = w.sphere_materials[i];
+    Texture &texture = material.texture;
+    glActiveTexture(GL_TEXTURE0);
+
+    if ( material.type == Material::GLASS ){
+      glBindTexture( GL_TEXTURE_2D, w.white_texture );
+    } else {
+      switch ( texture.type ){
+        case Texture::COLOR:
+          glBindTexture( GL_TEXTURE_2D, w.white_texture );
+          break;
+        case Texture::CHECKER:
+          glBindTexture( GL_TEXTURE_2D, w.checker_texture );
+          break;
+        case Texture::MARBLE:
+          glBindTexture( GL_TEXTURE_2D, w.marble_texture );
+          break;
+      }
+    }
     glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
                         1,GL_FALSE,
                         HMM_MAT4_PTR(mvp) );
@@ -1951,7 +2134,66 @@ void draw_world( const World &w ){
   value = 0;
   for ( uint i = 0; i < array_length( w.rects ); i++ ){
     Rectangle &r = w.rects[i];
-    v3 &color = w.rect_colors[i];
+    Material &material = w.rect_materials[i];
+    Texture &texture = material.texture;
+    v3 color = texture.color;
+
+    v2 tc[4];
+    if ( material.type == Material::GLASS ){
+      glBindTexture( GL_TEXTURE_2D, w.white_texture );
+      color  = GLASS_COLOR;
+    } else {
+      switch ( texture.type ){
+        case Texture::COLOR:
+          glBindTexture( GL_TEXTURE_2D, w.white_texture );
+          tc[0] = v2{ 0.0f, 0.0f };
+          tc[1] = v2{ 1.0f, 0.0f };
+          tc[2] = v2{ 1.0f, 1.0f };
+          tc[3] = v2{ 0.0f, 1.0f };
+          break;
+        case Texture::CHECKER:
+          {
+            glBindTexture( GL_TEXTURE_2D, w.checker_texture );
+            f32 unit = 0.5f;
+            f32 len1 = r.l1/unit, len2 = r.l2/unit;
+            tc[0] = v2{ 0.0f, 0.0f };
+            tc[1] = v2{ len1, 0.0f };
+            tc[2] = v2{ len1, len2 };
+            tc[3] = v2{ 0, len2 };
+          }
+          break;
+        case Texture::MARBLE:
+          {
+            glBindTexture( GL_TEXTURE_2D, w.marble_texture );
+            tc[0] = v2{ 0.0f, 0.0f };
+            tc[1] = v2{ 1.0f, 0.0f };
+            tc[2] = v2{ 1.0f, 1.0f };
+            tc[3] = v2{ 0.0f, 1.0f };
+          }
+          break;
+      }
+    }
+    f32 vertexes[100];
+    memcpy( vertexes, r.p0.Elements, sizeof(r.p0) );
+    memcpy( vertexes + 3, color.Elements, sizeof(color) );
+    memcpy( vertexes + 6, r.n.Elements, sizeof(r.n) );
+    memcpy( vertexes + 9, tc[0].Elements, sizeof( tc[0] ) );
+  
+    memcpy( vertexes + 11, r.p1.Elements, sizeof(r.p0) );
+    memcpy( vertexes + 14, color.Elements, sizeof(color) );
+    memcpy( vertexes + 17, r.n.Elements, sizeof(r.n) );
+    memcpy( vertexes + 20, tc[1].Elements, sizeof( tc[0] ) );
+
+    memcpy( vertexes + 22, r.p2.Elements, sizeof(r.p0) );
+    memcpy( vertexes + 25, color.Elements, sizeof(color) );
+    memcpy( vertexes + 28, r.n.Elements, sizeof(r.n) );
+    memcpy( vertexes + 31, tc[2].Elements, sizeof( tc[0] ) );
+
+    memcpy( vertexes + 33, r.p3.Elements, sizeof(r.p0) );
+    memcpy( vertexes + 36, color.Elements, sizeof(color) );
+    memcpy( vertexes + 39, r.n.Elements, sizeof(r.n) );
+    memcpy( vertexes + 42, tc[3].Elements, sizeof( tc[0] ) );
+#if 0
     array_push( w.color_vertex_data, r.p0 );
     array_push( w.color_vertex_data, color );
     array_push( w.color_vertex_data, r.n );
@@ -1968,39 +2210,25 @@ void draw_world( const World &w ){
     array_push( w.color_vertex_data, r.p3 );
     array_push( w.color_vertex_data, color );
     array_push( w.color_vertex_data, r.n );
-
+#endif
     // push the indices
-    array_push( w.color_vertex_indices, value );
-    array_push( w.color_vertex_indices, value + 1 );
-    array_push( w.color_vertex_indices, value + 2 );
-    array_push( w.color_vertex_indices, value + 2 );
-    array_push( w.color_vertex_indices, value + 3 );
-    array_push( w.color_vertex_indices, value );
-    value += 4;
+
+    glBindVertexArray( w.rect_vao );
+    glBindBuffer( GL_ARRAY_BUFFER, w.rect_vbo );
+    glBufferData( GL_ARRAY_BUFFER, 
+                  sizeof( f32 ) * 44,
+                  vertexes,
+                  GL_STATIC_DRAW
+                );
+
+    glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
+                        1,GL_FALSE,
+                        HMM_MAT4_PTR(vp) );
+    glDrawElements(GL_TRIANGLES,6,
+                   GL_UNSIGNED_INT, 0 );
+
   }
 
-  glBindVertexArray( w.color_vao );
-  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, w.color_ebo );
-  glBufferData( GL_ELEMENT_ARRAY_BUFFER,
-                sizeof(uint) * array_length( w.color_vertex_indices ),
-                w.color_vertex_indices,
-                GL_STATIC_DRAW );
-
-  glBindBuffer( GL_ARRAY_BUFFER, w.color_vbo );
-  glBufferData( GL_ARRAY_BUFFER, 
-                sizeof(v3) * array_length( w.color_vertex_data ),
-                w.color_vertex_data,
-                GL_STATIC_DRAW
-              );
-
-  glUniformMatrix4fv( simple_color_shader_info.mvp_loc,
-                      1,GL_FALSE,
-                      HMM_MAT4_PTR(vp) );
-  glDrawElements(GL_TRIANGLES,array_length(w.color_vertex_data),
-                 GL_UNSIGNED_INT, 0 );
-
-  array_clear( w.color_vertex_data );
-  array_clear( w.color_vertex_indices );
 
   glUseProgram( 0 );
 
@@ -2252,10 +2480,60 @@ void dump_texture_data(
 
 void print_dump_data( DumpObjectData *data ){
 }
+void convert_material_to_dump(
+    DumpObjectData &data,
+    const Material &material )
+{
+  switch ( material.type ){
+    case Material::GLASS:
+      printf("Dumping Glass material with value %d\n",
+          DumpObjectData::MATERIAL_GLASS );
+      data.material_type = DumpObjectData::MATERIAL_GLASS;
+      data.material_data.ri = 1.33f;
+      break;
+    case Material::PURE_DIFFUSE:
+      data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
+      break;
+    case Material::METALLIC:
+      data.material_type = DumpObjectData::MATERIAL_METALLIC;
+      data.material_data.fuzz = 0.01f;
+      break;
+  }
+}
+
+void convert_texture_to_dump(
+    DumpObjectData &data,
+    const Texture &texture )
+{
+  switch ( texture.type ){
+    case Texture::COLOR:
+      printf("Dumping color texture with value %d\n",
+          DumpObjectData::TEXTURE_PLAIN_COLOR );
+      data.texture_type= DumpObjectData::TEXTURE_PLAIN_COLOR;
+      data.texture_data.color = texture.color;
+      break;
+    case Texture::MARBLE:
+      printf("Dumping marble texture with value %d\n",
+          DumpObjectData::TEXTURE_MARBLE );
+      data.texture_type = DumpObjectData::TEXTURE_MARBLE;
+      data.texture_data.marble_color = texture.color;
+      break;
+    case Texture::CHECKER:
+      printf("Dumping checker texture with value %d\n",
+          DumpObjectData::TEXTURE_CHECKER );
+      data.texture_type = DumpObjectData::TEXTURE_CHECKER;
+      data.texture_data.checker_color[0] = texture.color;
+      data.texture_data.checker_color[1] = v3{0.0f,0.0f,0.0f};
+      data.texture_data.freq = 8.0f;
+      break;
+  }
+}
 
 void world_dump_rect_data( const World &w, DumpObjectData *store ){
   Rectangle *rects = w.rects;
   for ( uint i = 0; i < array_length( rects ); i++ ){
+    Material &material = w.rect_materials[i];
+    Texture &texture = material.texture;
     DumpObjectData data;
     data.type = DumpObjectData::RECTANGLE;
     data.object_data.p0 = rects[i].p0;
@@ -2265,9 +2543,9 @@ void world_dump_rect_data( const World &w, DumpObjectData *store ){
     data.object_data.l1= rects[i].l1;
     data.object_data.l2= rects[i].l2;
 
-    data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
-    data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
-    dump_texture_data( data, w.rect_colors, i );
+    convert_material_to_dump( data, material );
+    convert_texture_to_dump( data, texture );
+
     array_push( store, data );
   }
 }
@@ -2275,13 +2553,14 @@ void world_dump_rect_data( const World &w, DumpObjectData *store ){
 void world_dump_sphere_data( const World &w, DumpObjectData *store ){
   Sphere *spheres= w.spheres;
   for ( uint i = 0; i < array_length( spheres ); i++ ){
+    Material &material = w.sphere_materials[i];
+    Texture &texture = material.texture;
     DumpObjectData data;
     data.type = DumpObjectData::SPHERE;
     data.object_data.center = spheres[i].c;
     data.object_data.radius = spheres[i].r;
-    data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
-    data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
-    dump_texture_data( data, w.sphere_colors, i );
+    convert_material_to_dump( data, material );
+    convert_texture_to_dump( data, texture );
     array_push( store, data );
   }
 }
@@ -2301,10 +2580,14 @@ void apply_cube_transform_to_rect( Rectangle &r, Cube &cube ){
 
 }
 
+
 void world_dump_cube_data( const World &w, DumpObjectData *store ){
   for ( uint i = 0; i < array_length( w.cubes ); i++ ){
     Rectangle rects[6];
     generate_cube_rects( rects, w.cubes[i].length );
+    Material &material = w.cube_materials[i];
+    Texture &texture = material.texture;
+
     for ( uint faces = 0; faces < 6; faces++ ){
       DumpObjectData data;
       data.type = DumpObjectData::RECTANGLE;
@@ -2317,10 +2600,31 @@ void world_dump_cube_data( const World &w, DumpObjectData *store ){
       data.object_data.n =  rects[faces].n;
       data.object_data.l1=  rects[faces].l1;
       data.object_data.l2=  rects[faces].l2;
-      data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
-      data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
 
-      dump_texture_data( data, w.cubes[i].color,faces);
+
+      convert_material_to_dump( data, material );
+      switch ( texture.type ){
+        case Texture::COLOR:
+          printf("Dumping color texture with value %d\n",
+              DumpObjectData::TEXTURE_PLAIN_COLOR );
+          data.texture_type= DumpObjectData::TEXTURE_PLAIN_COLOR;
+          data.texture_data.color = texture.face_colors[faces];
+          break;
+        case Texture::MARBLE:
+          printf("Dumping marble texture with value %d\n",
+              DumpObjectData::TEXTURE_MARBLE );
+          data.texture_type = DumpObjectData::TEXTURE_MARBLE;
+          data.texture_data.marble_color = texture.face_colors[faces];
+          break;
+        case Texture::CHECKER:
+          printf("Dumping checker texture with value %d\n",
+              DumpObjectData::TEXTURE_CHECKER );
+          data.texture_type = DumpObjectData::TEXTURE_CHECKER;
+          data.texture_data.checker_color[0] = texture.face_colors[faces];
+          data.texture_data.checker_color[1] = v3{0.0f,0.0f,0.0f};
+          data.texture_data.freq = 2.0f;
+          break;
+      }
       array_push( store, data );
     }
   }
@@ -2341,8 +2645,7 @@ void world_dump_light_rect_data(
     data.object_data.l1= rects[i].l1;
     data.object_data.l2= rects[i].l2;
     data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
-    data.material_data.diff_light_color = 
-      w.light_rect_color[ i ];
+    data.material_data.diff_light_color = w.light_rect_color[ i ] * 10.0f;
     array_push( store, data );
   }
 }
@@ -2359,7 +2662,7 @@ void world_dump_light_sphere_data(
     data.object_data.radius = w.light_spheres[i].r;
 
     data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
-    data.material_data.diff_light_color = w.light_sphere_color[ i ];
+    data.material_data.diff_light_color = w.light_sphere_color[ i ] * 10.0f;
     array_push( store, data );
   }
 }
@@ -2384,7 +2687,7 @@ void world_dump_light_cube_data(
       data.object_data.l2=  r.l2;
 
       data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
-      data.material_data.diff_light_color = w.light_cube_color[i];
+      data.material_data.diff_light_color = w.light_cube_color[i] * 10.0f;
       array_push( store, data );
     }
   }
@@ -2429,9 +2732,51 @@ void world_dump_scene_to_file(
   array_free( data_store );
   return;
 }
+uint8 *load_image( const char *fname, int *width, int *height, int *channels ){
+  uint8 *data = (uint8 *)stbi_load( fname, width, height, channels, 4 );
+  if ( data == NULL ){
+    fprintf( stderr, "Unable to load image %s!", fname );
+    return NULL;
+  } else {
+    fprintf( stdout, "Image loaded successfully. width = %d, height = %d\n", *width, *height );
+  }
+  return data;
+}
+
+Image create_image( const char *fname ){
+  Image image;
+  image.data = load_image( fname, &image.w, &image.h, &image.channels );
+  return image;
+}
+
+Texture cube_color_texture( ){
+  Texture t;
+  t.type = Texture::COLOR;
+  t.face_colors[0] = v3{prng_float(), prng_float(), prng_float() };
+  t.face_colors[1] = v3{prng_float(), prng_float(), prng_float() };
+  t.face_colors[2] = v3{prng_float(), prng_float(), prng_float() };
+  t.face_colors[3] = v3{prng_float(), prng_float(), prng_float() };
+  t.face_colors[4] = v3{prng_float(), prng_float(), prng_float() };
+  t.face_colors[5] = v3{prng_float(), prng_float(), prng_float() };
+  return t;
+}
+
+Texture sphere_color_texture( ){
+  Texture t;
+  t.type = Texture::COLOR;
+  t.color = v3{prng_float(), prng_float(), prng_float() };
+  return t;
+}
+
+Texture rectangle_color_texture( ){
+  Texture t;
+  t.type = Texture::COLOR;
+  t.color = v3{prng_float(), prng_float(), prng_float() };
+  return t;
+}
 
 int main(){
-
+  prng_seed();
   generate_sphere_vertices();
   bool dump_scene_data = false;
   uint dump_count = 0;
@@ -2508,6 +2853,24 @@ int main(){
   if ( create_nl_color_shader_program() == -1 ){
     return -1;
   }
+  
+  // Load images for texture
+  //
+  uint8 white_texture_data[] = { 255, 255, 255, 255 };
+  Image checker_image = create_image( "./assets/checkers.png" );
+  Image white_marble_image = create_image( "./assets/White-Marble-1024.png" );
+  Image white_image = create_image( "./assets/white.png" );
+  // create textures
+  Texture checker_texture;
+  checker_texture.type = Texture::CHECKER;
+  checker_texture.image = checker_image;
+
+  Texture white_marble_texture;
+  white_marble_texture.type = Texture::MARBLE;
+  white_marble_texture.image = white_marble_image;
+
+  Texture color_texture;
+  color_texture.type = Texture::COLOR;
   // create_world
   World *world = (World *)malloc( sizeof(World) );
   World &w = *world;
@@ -2521,13 +2884,13 @@ int main(){
   
   w.ui_vfov = 45;
   w.ui_near_plane = 0.1f;
-  w.ui_far_plane = 10.0f;
+  w.ui_far_plane = 100.0f;
   w.ui_perspective= HMM_Perspective(45,
                   (float)ScreenWidth/ScreenHeight,
                   0.1f, 10.0f );
   w.view_vfov = 45;
   w.view_near_plane = 0.1f;
-  w.view_far_plane = 10.0f;
+  w.view_far_plane = 100.0f;
   w.view_perspective = HMM_Perspective(w.view_vfov,
                   (float)ScreenWidth/ScreenHeight,
                   w.view_near_plane, w.view_far_plane );
@@ -2571,6 +2934,10 @@ int main(){
   w.spheres_transform = array_allocate( m4, 10 );
   w.sphere_colors = array_allocate( v3, 10 );
   w.rect_colors = array_allocate(v3,10 );
+
+  w.cube_materials = array_allocate( Material, 10 );
+  w.sphere_materials = array_allocate( Material, 10 );
+  w.rect_materials= array_allocate( Material, 10 );
 
   w.light_cubes = array_allocate( Cube, 10 );
   w.light_rects = array_allocate( Rectangle, 10 );
@@ -2638,11 +3005,94 @@ int main(){
                          (void *)(2 * sizeof(v3) ) );
 
   glBindVertexArray( 0 );
-  world_add_cube( w, &cube );
-  world_add_sphere( w,
-          create_sphere( v3{0.0f,0.0f,0.0f}, 1.0f ) , v3 {1.0f,0.0f,0.0f} );
-  world_add_rect( w, 
-      create_rectangle( v3{-1.0f,2.0f,3.0f } ), v3{0.5f,0.2f,0.8f} );
+
+  glGenVertexArrays( 1, &w.rect_vao );
+  glGenBuffers( 1, &w.rect_vbo );
+  glBindVertexArray( w.rect_vao );
+
+  glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, quad_elem_buffer_index );
+
+  glBindBuffer( GL_ARRAY_BUFFER, w.rect_vbo );
+  glBufferData( GL_ARRAY_BUFFER,
+                200 * sizeof(v3),
+                NULL, GL_STATIC_DRAW );
+
+  glEnableVertexAttribArray( simple_color_shader_info.pos_id );
+  glEnableVertexAttribArray( simple_color_shader_info.color_id );
+  glEnableVertexAttribArray( simple_color_shader_info.normal_id );
+  glEnableVertexAttribArray( simple_color_shader_info.tex_coords_id);
+
+  glVertexAttribPointer( simple_color_shader_info.pos_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         3 * sizeof(v3) + sizeof(v2),
+                         (void *)( 0 ) );
+
+  glVertexAttribPointer( simple_color_shader_info.color_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         3 * sizeof(v3) + sizeof(v2),
+                         (void *)(sizeof(v3) ) );
+
+  glVertexAttribPointer( simple_color_shader_info.normal_id,
+                         3, GL_FLOAT, GL_FALSE,
+                         3 * sizeof(v3) + sizeof(v2),
+                         (void *)(2 * sizeof(v3) ) );
+
+  glVertexAttribPointer( simple_color_shader_info.tex_coords_id,
+                         2, GL_FLOAT, GL_FALSE,
+                         3 * sizeof(v3) + sizeof(v2),
+                         (void *)(3 * sizeof(v3) ) );
+
+  glBindVertexArray( 0 );
+
+  // generate opengl Textures
+  glGenTextures( 1, &w.white_texture );
+  glGenTextures( 1, &w.checker_texture);
+  glGenTextures( 1, &w.marble_texture);
+
+  glBindTexture(GL_TEXTURE_2D, w.white_texture);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glTexImage2D(GL_TEXTURE_2D, 0,
+      GL_RGBA, 1, 1,
+      0, GL_RGBA,
+      GL_UNSIGNED_BYTE, white_texture_data );
+  glGenerateMipmap(GL_TEXTURE_2D);
+
+  glBindTexture(GL_TEXTURE_2D, w.checker_texture );
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glTexImage2D(GL_TEXTURE_2D, 0,
+      GL_RGBA, checker_image.w, checker_image.h,
+      0, GL_RGBA,
+      GL_UNSIGNED_BYTE, checker_image.data );
+  glGenerateMipmap(GL_TEXTURE_2D);
+
+
+  glBindTexture(GL_TEXTURE_2D, w.marble_texture );
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glTexImage2D(GL_TEXTURE_2D, 0,
+      GL_RGBA, white_marble_image.w, white_marble_image.h,
+      0, GL_RGBA,
+      GL_UNSIGNED_BYTE, white_marble_image.data );
+  glGenerateMipmap(GL_TEXTURE_2D);
+
+
+  Material m = create_material_diffuse( cube_color_texture() );
+  world_add_cube( w, &cube, m );
+  m = create_material_metallic( sphere_color_texture() );
+  world_add_sphere( w,create_sphere( v3{0.0f,0.0f,0.0f}, 1.0f ) , m );
+  m = create_material_diffuse( rectangle_color_texture() );
+  world_add_rect( w,create_rectangle( v3{-1.0f,2.0f,3.0f } ), m );
 
   w.model_matrices[OBJECT_CUBE_INSTANCE][0] = cube.base_transform;
   world_generate_grid_data(w, w.grid );
@@ -2848,19 +3298,23 @@ int main(){
                     w.selected_rotate = cube_rotate;
                     w.selected_scale = cube_scale;
                     if ( record.obj.type == OBJECT_CUBE_INSTANCE ){
-                    w.cube_face_dropdown = 0;
-                    w.cube_face_color=
-                        w.cubes[w.selected_object.index].color[0];
-                    w.selected_data = (void *)(
-                        w.cubes + w.selected_object.index );
-                    w.sel_cube_length =
-                      w.cubes[w.selected_object.index].length;
+                      w.cube_face_dropdown = 0;
+                      w.selected_data = (void *)(
+                          w.cubes + w.selected_object.index );
+                      w.sel_cube_length =
+                        w.cubes[w.selected_object.index].length;
+                      w.cube_material_dropdown = 
+                        w.cube_materials[w.selected_object.index].type;
+                      w.cube_texture_dropdown = 
+                        w.cube_materials[w.selected_object.index].texture.type;
+                      w.cube_face_color=
+                        w.cube_materials[w.selected_object.index].texture.face_colors[0];
                     } else {
                       w.light_cube_face_color =
                         w.light_cube_color[ w.selected_object.index ];
-                    w.selected_data = (void *)(
+                      w.selected_data = (void *)(
                         w.light_cubes + w.selected_object.index );
-                    w.sel_cube_length =
+                      w.sel_cube_length =
                       w.light_cubes[w.selected_object.index].length;
                     }
                     break;
@@ -2879,6 +3333,10 @@ int main(){
                           w.spheres + w.selected_object.index );
                       w.sel_sphere_radius = 
                           w.spheres[w.selected_object.index].r;
+                      w.sphere_material_dropdown = 
+                        w.sphere_materials[w.selected_object.index].type;
+                      w.sphere_texture_dropdown = 
+                        w.sphere_materials[w.selected_object.index].texture.type;
                     } else {
                       w.light_sphere_face_color = w.light_sphere_color[ record.obj.index ];
                       w.selected_data = (void *)(
@@ -2896,13 +3354,17 @@ int main(){
                     w.selected_rotate = rectangle_rotate;
                     w.selected_scale= rectangle_scale;
                     if ( record.obj.type == OBJECT_RECT ){
-                      w.rect_face_color= w.rect_colors[ record.obj.index ];
+                      w.rect_face_color= w.rect_materials[ w.selected_object.index].texture.color;
                       w.selected_data = (void *)(
                         w.rects+ w.selected_object.index );
                       w.sel_rect_l1= 
                           w.rects[w.selected_object.index].l1;
                       w.sel_rect_l2= 
                           w.rects[w.selected_object.index].l2;
+                      w.rect_material_dropdown = 
+                        w.rect_materials[w.selected_object.index].type;
+                      w.rect_texture_dropdown = 
+                        w.rect_materials[w.selected_object.index].texture.type;
                     } else {
                       w.light_rect_face_color = 
                         w.light_rect_color[ record.obj.index ];
@@ -2951,9 +3413,11 @@ int main(){
                   switch ( w.hold_object_id ){
                     case 0: 
                     {
+                      Material m = 
+                        create_material_diffuse( cube_color_texture() );
                       Cube cube = create_cube_one_color( 0.2f, record.p,
                         v3 {0,1,0} ) ;
-                      world_add_cube( w, &cube );
+                      world_add_cube( w, &cube, m );
                       WORLD_SET_STATE_SELECTED;
                       w.is_selected = true;
                       w.selected_object.type = OBJECT_CUBE_INSTANCE;
@@ -2962,8 +3426,12 @@ int main(){
                       w.selected_move = cube_move;
                       w.selected_rotate = cube_rotate;
                       w.cube_face_dropdown = 0;
+                      w.cube_material_dropdown = 
+                        w.cube_materials[w.selected_object.index].type;
+                      w.cube_texture_dropdown = 
+                        w.cube_materials[w.selected_object.index].texture.type;
                       w.cube_face_color=
-                        w.cubes[w.selected_object.index].color[0];
+                        w.cube_materials[w.selected_object.index].texture.face_colors[0];
                       w.selected_data = (void *)(
                           w.cubes + w.selected_object.index );
                       w.sel_cube_length = 0.2f;
@@ -2971,8 +3439,10 @@ int main(){
                     }
                     case 1:
                     {
+                      Material mat = create_material_metallic( 
+                                    sphere_color_texture() );
                       Sphere s = create_sphere( record.p, 0.5f );
-                      world_add_sphere( w,s,v3{0.5f,0.2f,0.0f} );
+                      world_add_sphere( w,s,mat );
                       WORLD_SET_STATE_SELECTED;
                       w.sel_sphere_radius = 0.5f;
                       w.is_selected = true;
@@ -2981,15 +3451,23 @@ int main(){
                       w.selected_aabb = sphere_aabb;
                       w.selected_move = sphere_move;
                       w.selected_rotate = sphere_rotate;
-                      w.sphere_face_color=v3{0.5f,0.2f,0.0f};
+                      w.sphere_material_dropdown = 
+                        w.sphere_materials[w.selected_object.index].type;
+                      w.sphere_texture_dropdown = 
+                 w.sphere_materials[w.selected_object.index].texture.type;
+                      w.sphere_face_color=
+                   w.sphere_materials[w.selected_object.index].texture.color;
+
                       w.selected_data = (void *)(
                           w.spheres+ w.selected_object.index );
                       break;
                     }
                     case 2:
                     {
+                      Material mat = create_material_diffuse( 
+                          rectangle_color_texture() );
                       Rectangle r = create_rectangle( record.p );
-                      world_add_rect( w,r,v3{0.3f,0.2f,0.7f} );
+                      world_add_rect( w,r,mat );
                       WORLD_SET_STATE_SELECTED;
                       w.sel_rect_l1 = r.l1;
                       w.sel_rect_l2 = r.l2;
@@ -2999,7 +3477,11 @@ int main(){
                       w.selected_aabb = rectangle_AABB;
                       w.selected_move = rectangle_move;
                       w.selected_rotate = rectangle_rotate;
-                      w.rect_face_color =v3{0.3f,0.2f,0.7f};
+                      w.rect_face_color = mat.texture.color;
+                      w.rect_material_dropdown = 
+                        w.rect_materials[w.selected_object.index].type;
+                      w.rect_texture_dropdown = 
+                        w.rect_materials[w.selected_object.index].texture.type;
                       w.selected_data = (void *)(
                           w.rects + w.selected_object.index );
                       break;
@@ -3072,7 +3554,7 @@ int main(){
         break;
 
 
-#define SELECTED_MOVE_DIST 0.04f
+#define SELECTED_MOVE_DIST 0.02f
 #define SELECTED_MOVE_UP v3{0.0f,1.0f,0.0f}
 #define SELECTED_MOVE_RIGHT v3{1.0f,0.0f,0.0f}
 #define SELECTED_MOVE_FRONT v3{0.0f,0.0f,-1.0f}
@@ -3241,11 +3723,7 @@ int main(){
       }
     }
     w.camera->update( dt );
-    if ( w.state == World::STATE_FREE_VIEW ||
-         w.state == World::STATE_VIEW_CAMERA )
-    {
-      glfwSetCursorPosCallback( window, mouse_callback );
-    }
+    glfwSetCursorPosCallback( window, mouse_callback );
 
     Event_Count = 0;
     glClearColor(0.0f,0,0,1);
@@ -3304,7 +3782,7 @@ int main(){
       ImGui_ImplOpenGL3_NewFrame();
       ImGui_ImplGlfw_NewFrame();
       ImGui::NewFrame();
-#define SLIDER_UPPER_LIMIT 5.0f
+#define SLIDER_UPPER_LIMIT 10.0f
       // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
       if ( show_demo_window ){ ImGui::ShowDemoWindow(&show_demo_window); }
 
@@ -3327,30 +3805,61 @@ int main(){
           "Front", "Back", "Right","Left",
           "Up","Down"
         };
+
         ImGui::Combo("Cube Face",
             &w.cube_face_dropdown,
             items, IM_ARRAYSIZE(items));
 
-        w.cube_face_color = cube->color[w.cube_face_dropdown];
-        ImGui::ColorEdit3("clear color",
-            w.cube_face_color.Elements );
         ImGui::SliderFloat("Cube Length",
                            &w.sel_cube_length,
                            0.05f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
 
+        const char *material_dropdown[] = {
+          "Metallic", "Diffuse", "Glass"
+        };
+        ImGui::Combo("Material",
+            &w.cube_material_dropdown,
+            material_dropdown, IM_ARRAYSIZE(material_dropdown));
+
+        if ( w.cube_material_dropdown == 2 ){
+        } else {
+
+          const char *texture_select[] = {
+            "Color","Checker","Marble"
+          };
+          ImGui::Combo("Texture", &w.cube_texture_dropdown, 
+                        texture_select,
+                        IM_ARRAYSIZE(texture_select));
+          w.cube_face_color = w.cube_materials[i].texture.face_colors[
+            w.cube_face_dropdown
+          ];
+          ImGui::ColorEdit3("clear color", w.cube_face_color.Elements );
+        }
       } else if ( w.selected_object.type == OBJECT_SPHERE ){
-        w.sphere_face_color = w.sphere_colors[ i ];
-        ImGui::ColorEdit3("clear color",
-            w.sphere_face_color.Elements );
-        ImGui::SliderFloat("Sphere Radius",
-                           &w.sel_sphere_radius,
+        ImGui::SliderFloat("Sphere Radius", &w.sel_sphere_radius,
                            0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+        const char *material_dropdown[] = {
+          "Metallic", "Diffuse", "Glass"
+        };
+        ImGui::Combo("Material",
+            &w.sphere_material_dropdown,
+            material_dropdown, IM_ARRAYSIZE(material_dropdown));
+
+        if ( w.sphere_material_dropdown == 2 ){
+        } else {
+
+          const char *texture_select[] = {
+            "Color","Checker","Marble"
+          };
+          ImGui::Combo("Texture", &w.sphere_texture_dropdown, 
+                        texture_select,
+                        IM_ARRAYSIZE(texture_select));
+          w.sphere_face_color = w.sphere_materials[i].texture.color;
+          ImGui::ColorEdit3("clear color", w.sphere_face_color.Elements );
+        }
         
       } else if ( w.selected_object.type == OBJECT_RECT ){
         // TODO: Two sliders
-        w.rect_face_color= w.rect_colors[ i ];
-        ImGui::ColorEdit3("clear color",
-            w.rect_face_color.Elements );
         if ( ImGui::Button( "Flip Normal" ) ){
           w.rect_flip_normal++;
         }
@@ -3360,6 +3869,25 @@ int main(){
         ImGui::SliderFloat("Rectangle length 3",
                            &w.sel_rect_l2,
                            0.01f, SLIDER_UPPER_LIMIT, "ratio = %.3f");
+        const char *material_dropdown[] = {
+          "Metallic", "Diffuse", "Glass"
+        };
+        ImGui::Combo("Material",
+            &w.rect_material_dropdown,
+            material_dropdown, IM_ARRAYSIZE(material_dropdown));
+
+        if ( w.rect_material_dropdown == 2 ){
+        } else {
+
+          const char *texture_select[] = {
+            "Color","Checker","Marble"
+          };
+          ImGui::Combo("Texture", &w.rect_texture_dropdown, 
+                        texture_select,
+                        IM_ARRAYSIZE(texture_select));
+          w.rect_face_color = w.rect_materials[i].texture.color;
+          ImGui::ColorEdit3("clear color", w.rect_face_color.Elements );
+        }
 
       } else if ( w.selected_object.type != OBJECT_GRID ) {
         v3 *color;
@@ -3415,33 +3943,70 @@ int main(){
         case OBJECT_CUBE_INSTANCE:
         {
           Cube *cube =w.cubes + i;
-          cube->color[ w.cube_face_dropdown ] = w.cube_face_color;
-          world_add_cube_vertex_data( w.cubes_vao[i], w.cubes_vbo[i],*cube );
+          if ( w.cube_material_dropdown == 2 ){
+            w.cube_materials[i].type = Material::GLASS;
+          } else {
+            w.cube_materials[i].type =
+              (Material::MaterialType)w.cube_material_dropdown;
+            switch ( w.cube_texture_dropdown ){
+              case 0:
+                w.cube_materials[i].texture.type = Texture::COLOR;
+                break;
+              case 1:
+                w.cube_materials[i].texture.type = Texture::CHECKER;
+                break;
+              case 2:
+                w.cube_materials[i].texture.type = Texture::MARBLE;
+                break;
+              default:
+                break;
+            }
+            w.cube_materials[i].texture.face_colors[ w.cube_face_dropdown ] =
+                w.cube_face_color;
+          }
+          
           f32 l = w.sel_cube_length;
           cube_scale( cube, v3{l,l,l},
                       w.model_matrices[OBJECT_CUBE_INSTANCE][i] );
+          world_add_cube_vertex_data(w,i);
         }
           break;
         case OBJECT_SPHERE:
           {
-            w.sphere_colors[i] = w.sphere_face_color;
-            world_add_sphere_vertex_data( w.spheres_vao[i],
-                w.spheres_vbo[i], w.spheres[i], w.sphere_colors[i] );
-            f32 l = w.sel_sphere_radius;
-            sphere_scale(w.spheres+i, v3{l,l,l},
-                w.model_matrices[OBJECT_SPHERE][i] );
-          }
+            if ( w.sphere_material_dropdown ==  2 ){
+              w.sphere_materials[i].type = Material::GLASS;
+            } else {
+              w.sphere_materials[i].type =
+                (Material::MaterialType)w.sphere_material_dropdown;
+              w.sphere_materials[i].texture.type =
+                (Texture::TextureType)w.sphere_texture_dropdown;
+              w.sphere_materials[i].texture.color = w.sphere_face_color;
+            }
+            
+              world_add_sphere_vertex_data(w,i);
+              f32 l = w.sel_sphere_radius;
+              sphere_scale(w.spheres+i, v3{l,l,l},
+                  w.model_matrices[OBJECT_SPHERE][i] );
+            }
           break;
         case OBJECT_RECT:
           {
-            w.rect_colors[i] = w.rect_face_color;
             if ( w.rect_flip_normal ){
               w.rect_flip_normal--;
               w.rects[i].n *= -1;
             }
-            rectangle_scale( w.selected_data,w.sel_rect_l1, w.sel_rect_l2 );
-            break;
-          }
+            if ( w.rect_material_dropdown ==  2 ){
+              w.rect_materials[i].type = Material::GLASS;
+            } else {
+              w.rect_materials[i].type =
+                (Material::MaterialType)w.rect_material_dropdown;
+              w.rect_materials[i].texture.type =
+                (Texture::TextureType)w.rect_texture_dropdown;
+              w.rect_materials[i].texture.color = w.rect_face_color;
+            }
+              rectangle_scale( w.selected_data,w.sel_rect_l1, w.sel_rect_l2 );
+              break;
+            }
         case OBJECT_LIGHT_CUBE_INSTANCE:
         {
           Cube *cube =w.light_cubes + i;

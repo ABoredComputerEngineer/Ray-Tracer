@@ -5,9 +5,10 @@ LIBS = ./libs
 SRC = ./src
 CC = g++
 
-DBFLAGS = -g3 -gdwarf-2 -msse -msse2 -msse3 -Wall\
-					-DIMGUI_IMPL_OPENGL_LOADER_GLAD
-OFLAGS = -O3 -msse -msse2 -msse3 -Wall
+DBFLAGS = -g3 -gdwarf-2 -msse -msse2 -msse3 -Wall -DIMGUI_IMPL_OPENGL_LOADER_GLAD
+
+
+XFLAGS = -O3 -msse -msse2 -msse3 -Wall
 LIBFLAGS = `pkg-config --static --libs glfw3`
 BIN = ./bin
 HEADER_FILES = $(SRC)/*.h
@@ -32,7 +33,7 @@ ui: $(FULL_UI_OBJS)
 	$(CC) $(FULL_UI_OBJS) $(DBFLAGS) -L $(LIBS) $(LIBFLAGS) -o $(BIN)/ui
 
 ray: $(FULL_OBJS)
-	$(CC) $(FULL_OBJS) $(OFLAGS) -L $(LIBS) $(LIBFLAGS) -o $(BIN)/app
+	$(CC) $(FULL_OBJS) $(XFLAGS) -L $(LIBS) $(LIBFLAGS) -o $(BIN)/app
 
 debug: $(FULL_OBJS) 
 	$(CC) $(FULL_OBJS) $(DBFLAGS) -L $(LIBS) $(LIBFLAGS) -o $(BIN)/app
@@ -45,9 +46,9 @@ test: ./src/test.cpp
 	$(CC) $< $(DBFLAGS) -I $(INC) -o $@
 
 $(BIN)/%.o: $(SRC)/%.cpp
-	$(CC) $< $(DBFLAGS) -I $(INC) -c -o $@
+	$(CC) $< $(XFLAGS) -I $(INC) -c -o $@
 
 $(BIN)/%.o: $(SRC)/%.c
-	$(CC) $< $(DBFLAGS) -I $(INC) -c -o $@
+	$(CC) $< $(XFLAGS) -I $(INC) -c -o $@
 clean:
-	rm -rf $(FULL_UI_CORE_OBJS)
+	rm -rf $(FULL_UI_CORE_OBJS) ray.o
