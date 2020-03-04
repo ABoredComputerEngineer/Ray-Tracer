@@ -169,4 +169,39 @@ bool AABB_hit(
   return ( ( tmin < t1 ) && ( tmax > t0 ) );
 }
 
+struct Rectangle {
+  v3 p0,p1,p2,p3; //four points 
+  v3 s1, s2; // two unit vectors
+  v3 n; // unit normal vector
+
+  f32 l1,l2; // length along s1 and s2 resp
+  Material *m;
+  AABB box;
+};
+
+AABB rectangle_AABB( Rectangle &r ){
+  v3 z[4] = { r.p0, r.p1, r.p2, r.p3 };
+  
+  v3 min = {FLT_MAX,FLT_MAX,FLT_MAX};
+  v3 max = {-FLT_MAX,-FLT_MAX,-FLT_MAX};
+  for ( uint i = 0; i < 4; i++ ){
+    v3 p = z[i];
+    min.X = ( min.X > p.X )?p.X:min.X;
+    min.Y = ( min.Y > p.Y )?p.Y:min.Y;
+    min.Z = ( min.Z > p.Z )?p.Z:min.Z;
+
+    max.X = ( max.X < p.X )?p.X:max.X;
+    max.Y = ( max.Y < p.Y )?p.Y:max.Y;
+    max.Z = ( max.Z < p.Z )?p.Z:max.Z;
+  }
+  for ( uint i = 0; i < 3; i++ ){
+    if ( fabs( min[i]-max[i] ) < TOLERANCE ){
+      min[i] -= 0.01f;
+      max[i] += 0.01f;
+    }
+  }
+  r.box = AABB( min, max );
+  return r.box;
+}
+
 #endif

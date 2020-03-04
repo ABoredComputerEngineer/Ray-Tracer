@@ -1,6 +1,5 @@
 #ifndef RAY_DATA_H
 #define RAY_DATA_H
-#include "ui_primitives.h"
 #include "HandmadeMath.h"
 
 struct DumpCameraData {
@@ -37,9 +36,17 @@ struct DumpObjectData {
   };
 
   uint8 type;
-
-  Sphere sphere;
-  Rectangle r;
+   
+  union {
+    struct {
+      v3 center; //shpere data
+      f32 radius;
+    };
+    struct {
+      v3 p0, s1, s2, n;
+      f32 l1, l2;
+    };
+  } object_data;
 
   uint8 material_type;
   uint8 texture_type;

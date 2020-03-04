@@ -173,15 +173,15 @@ void generate_sphere_vertices( ){
   return;
 }
 
-void generate_cube_rects( ){
+void generate_cube_rects( Rectangle *rects, f32 len ){
   Rectangle front, back, left, right, top, bot;
-
-  front.p0 = { -0.5f, -0.5f, 0.5f };
-  back.p0 =  { -0.5f, -0.5f, -0.5f };
-  right.p0 = {  0.5f, -0.5f, -0.5f };
-  left.p0 =  { -0.5f, -0.5f, -0.5f };
-  top.p0 =   { -0.5f, 0.5f, -0.5f };
-  bot.p0 =   { -0.5f, -0.5f, -0.5f };
+  f32 half_len = len / 2.0f;
+  front.p0 = { -half_len, -half_len, half_len };
+  back.p0 =  { -half_len, -half_len, -half_len };
+  right.p0 = {  half_len, -half_len, -half_len };
+  left.p0 =  { -half_len, -half_len, -half_len };
+  top.p0 =   { -half_len, half_len, -half_len };
+  bot.p0 =   { -half_len, -half_len, -half_len };
 
   front.s1 = { 1.0f,0.0f,0.0f }; front.s2 = { 0.0f, 1.0f, 0.0f };
   back.s1 =  { 1.0f,0.0f,0.0f }; back.s2 =  { 0.0f, 1.0f, 0.0f };
@@ -201,19 +201,19 @@ void generate_cube_rects( ){
   top.n = { 0.0f, 1.0f, 0.0f }; 
   bot.n = { 0.0f, -1.0f, 0.0f }; 
 
-  front.l1 = front.l2 = 1.0f;
-  back.l1 = back.l2 = 1.0f;
-  right.l1 = right.l2 = 1.0f;
-  left.l1 = left.l2 = 1.0f;
-  top.l1 = top.l2 = 1.0f;
-  bot.l1 = bot.l2 = 1.0f;
+  front.l1 = front.l2 = len;
+  back.l1 = back.l2 = len;
+  right.l1 = right.l2 = len;
+  left.l1 = left.l2 = len;
+  top.l1 = top.l2 = len;
+  bot.l1 = bot.l2 = len;
 
-  CubeRects[ 0 ] = front;
-  CubeRects[ 1 ] = back;
-  CubeRects[ 2 ] = right;
-  CubeRects[ 3 ] = left;
-  CubeRects[ 4 ] = top;
-  CubeRects[ 5 ] = bot;
+  rects[ 0 ] = front;
+  rects[ 1 ] = back;
+  rects[ 2 ] = right;
+  rects[ 3 ] = left;
+  rects[ 4 ] = top;
+  rects[ 5 ] = bot;
 
 }
 
@@ -1140,6 +1140,17 @@ struct Light {
   v3 color;
 };
 
+struct Texture {
+  enum TextureType {
+    COLOR,
+    MARBLE,
+    CHECKER 
+  };
+  
+  v3 color;
+  uint8 *image_data;
+};
+
 struct World {
   enum State {
     STATE_INVALID = 0,
@@ -1449,8 +1460,12 @@ void world_add_light_sphere_vertex_data(
 void world_add_cube( World &w, Cube *cube ){
   uint vao, vbo;
   array_push( w.cubes, *cube );
-  m4 model = HMM_Translate(cube->pos) *
-             HMM_Scale( v3{ cube->length, cube->length, cube->length } ); 
+#if 0
+  m4 model = HMM_Scale( v3{ cube->length, cube->length, cube->length } )
+     HMM_Translate(cube->pos) ; 
+#else
+  m4 model = HMM_Translate(cube->pos)*HMM_Scale( v3{ cube->length, cube->length, cube->length } ) ; 
+#endif
   array_push( w.model_matrices[OBJECT_CUBE_INSTANCE],model );
 
   glGenVertexArrays( 1, &vao );
@@ -2235,12 +2250,21 @@ void dump_texture_data(
   }
 }
 
+void print_dump_data( DumpObjectData *data ){
+}
+
 void world_dump_rect_data( const World &w, DumpObjectData *store ){
   Rectangle *rects = w.rects;
   for ( uint i = 0; i < array_length( rects ); i++ ){
     DumpObjectData data;
     data.type = DumpObjectData::RECTANGLE;
-    data.r = rects[i];
+    data.object_data.p0 = rects[i].p0;
+    data.object_data.s1 = rects[i].s1;
+    data.object_data.s2 = rects[i].s2;
+    data.object_data.n = rects[i].n;
+    data.object_data.l1= rects[i].l1;
+    data.object_data.l2= rects[i].l2;
+
     data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
     data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
     dump_texture_data( data, w.rect_colors, i );
@@ -2253,7 +2277,8 @@ void world_dump_sphere_data( const World &w, DumpObjectData *store ){
   for ( uint i = 0; i < array_length( spheres ); i++ ){
     DumpObjectData data;
     data.type = DumpObjectData::SPHERE;
-    data.sphere = spheres[i];
+    data.object_data.center = spheres[i].c;
+    data.object_data.radius = spheres[i].r;
     data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
     data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
     dump_texture_data( data, w.sphere_colors, i );
@@ -2262,33 +2287,36 @@ void world_dump_sphere_data( const World &w, DumpObjectData *store ){
 }
 
 void apply_cube_transform_to_rect( Rectangle &r, Cube &cube ){
-  q4 quat = cube.orientation;
-  v3 point = v3{0.0f,0.0f,0.0f};
+  q4 quat = HMM_NormalizeQuaternion( cube.orientation );
+  r.l1 = cube.length;
+  r.l2 = cube.length;
 
-  r.p0 = rotate_point_by_quaternion( r.p0, point, quat );
+  r.p0 = rotate_vector_by_quaternion( r.p0,quat );
   r.s1 = rotate_vector_by_quaternion( r.s1, quat );
   r.s2 = rotate_vector_by_quaternion( r.s2, quat );
 
 
   r.n = rotate_vector_by_quaternion( r.n, quat );
-  r.l1 = cube.length;
-  r.l2 = cube.length;
-
   r.p0 += cube.pos;
 
 }
 
 void world_dump_cube_data( const World &w, DumpObjectData *store ){
-  Cube *cubes = w.cubes;
-  for ( uint i = 0; i < array_length( cubes ); i++ ){
+  for ( uint i = 0; i < array_length( w.cubes ); i++ ){
+    Rectangle rects[6];
+    generate_cube_rects( rects, w.cubes[i].length );
     for ( uint faces = 0; faces < 6; faces++ ){
       DumpObjectData data;
       data.type = DumpObjectData::RECTANGLE;
   // Apply cube transformation to the rectangle
-      Rectangle r = CubeRects[ i ];
-      apply_cube_transform_to_rect(r, w.cubes[i] );
-      data.r = r;
+      apply_cube_transform_to_rect(rects[faces], w.cubes[i] );
 
+      data.object_data.p0 = rects[faces].p0;
+      data.object_data.s1 = rects[faces].s1;
+      data.object_data.s2 = rects[faces].s2;
+      data.object_data.n =  rects[faces].n;
+      data.object_data.l1=  rects[faces].l1;
+      data.object_data.l2=  rects[faces].l2;
       data.material_type = DumpObjectData::MATERIAL_PURE_DIFFUSE;
       data.texture_type = DumpObjectData::TEXTURE_PLAIN_COLOR;
 
@@ -2306,7 +2334,12 @@ void world_dump_light_rect_data(
   for ( uint i = 0; i < array_length( rects ); i++ ){
     DumpObjectData data;
     data.type = DumpObjectData::RECTANGLE;
-    data.r = rects[i];
+    data.object_data.p0 = rects[i].p0;
+    data.object_data.s1 = rects[i].s1;
+    data.object_data.s2 = rects[i].s2;
+    data.object_data.n = rects[i].n;
+    data.object_data.l1= rects[i].l1;
+    data.object_data.l2= rects[i].l2;
     data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
     data.material_data.diff_light_color = 
       w.light_rect_color[ i ];
@@ -2322,7 +2355,9 @@ void world_dump_light_sphere_data(
   for ( uint i = 0; i < array_length( spheres ); i++ ){
     DumpObjectData data;
     data.type = DumpObjectData::SPHERE;
-    data.sphere = spheres[i];
+    data.object_data.center = w.light_spheres[i].c;
+    data.object_data.radius = w.light_spheres[i].r;
+
     data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
     data.material_data.diff_light_color = w.light_sphere_color[ i ];
     array_push( store, data );
@@ -2339,10 +2374,17 @@ void world_dump_light_cube_data(
       DumpObjectData data;
       data.type = DumpObjectData::RECTANGLE;
   // Apply cube transformation to the rectangle
-      Rectangle r = CubeRects[ i ];
-      apply_cube_transform_to_rect( r, w.cubes[i] );
-      data.r = r;
+      Rectangle r = CubeRects[ faces ];
+      apply_cube_transform_to_rect(r, w.light_cubes[i] );
+      data.object_data.p0 = r.p0;
+      data.object_data.s1 = r.s1;
+      data.object_data.s2 = r.s2;
+      data.object_data.n =  r.n;
+      data.object_data.l1=  r.l1;
+      data.object_data.l2=  r.l2;
+
       data.material_type = DumpObjectData::MATERIAL_DIFFUSE_LIGHT;
+      data.material_data.diff_light_color = w.light_cube_color[i];
       array_push( store, data );
     }
   }
@@ -2393,7 +2435,6 @@ int main(){
   generate_sphere_vertices();
   bool dump_scene_data = false;
   uint dump_count = 0;
-  generate_cube_rects();
   glfwInit();
   glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, 4 );
   glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, 3 );
@@ -2507,7 +2548,7 @@ int main(){
             );
 
 
-  Cube cube = create_cube_one_color( 0.5f, v3{-1,0.5f,-2}, v3 {0,1,0} );
+  Cube cube = create_cube_one_color( 0.5f, v3{1,0.25,0}, v3 {0,1,0} );
 
   w.cube.color[Cube::FRONT] = v3{0.82f, 0.36f, 0.45f};
   w.cube.color[Cube::BACK] = v3{0.82f, 0.36f, 0.45f};
@@ -2521,7 +2562,7 @@ int main(){
   for ( uint i = 0; i < _OBJECT_MAX; i++ ){
     w.model_matrices[ i ] = array_allocate( m4, 10 );
   }
-  
+
   w.cubes = array_allocate( Cube, 10 );
   w.rects = array_allocate( Rectangle, 10 );
   w.boxes = array_allocate( AABB, 10 );
@@ -2599,9 +2640,11 @@ int main(){
   glBindVertexArray( 0 );
   world_add_cube( w, &cube );
   world_add_sphere( w,
-          create_sphere( v3{0.0f,0.5f,0.0f}, 0.5f ) , v3 {1.0f,0.0f,0.0f} );
+          create_sphere( v3{0.0f,0.0f,0.0f}, 1.0f ) , v3 {1.0f,0.0f,0.0f} );
   world_add_rect( w, 
       create_rectangle( v3{-1.0f,2.0f,3.0f } ), v3{0.5f,0.2f,0.8f} );
+
+  w.model_matrices[OBJECT_CUBE_INSTANCE][0] = cube.base_transform;
   world_generate_grid_data(w, w.grid );
 #define WORLD_SET_STATE_FREE_VIEW \
   do {\

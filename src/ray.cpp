@@ -14,13 +14,15 @@
 #include "stb_image_write.h"
 #include "primitives.h"
 #include "texture.h"
+#include "ray_data.h"
 #define ANTI_ALIASING_ON 
+#if 1
 typedef unsigned int uint;
 typedef uint8_t uint8;
 typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
-
+#endif
 
 
 inline bool refract( const v3 &n, const v3 &v, float ri, v3 &ret ){
@@ -122,6 +124,8 @@ struct Camera {
     vertical = 2 * half_height *fd* up;
   }
 
+  Camera () {}
+
   inline Ray get_ray( float u, float v ){
     v3 x = lens_radius * random_in_unit_disk();
     v3 off = x.X * right + x.Y * up;
@@ -163,9 +167,14 @@ struct World {
   uint plane_count;
   uint plane_cap;
 
-  AARect *rects;
+  AARect *aa_rects;
+  uint aa_rect_count;
+  uint aa_rect_cap;
+
+  Rectangle *rectangles;
   uint rect_count;
   uint rect_cap;
+
 };
 
 
@@ -213,32 +222,6 @@ struct Material {
     }
   }
 };
-
-inline bool no_scatter(
-    const HitRecord &h,
-    const Ray &in,
-    v3 &attenuation,
-    Ray &out ){ return false; }
-
-Material create_diffuse_light( const v3 &color ){
-  Material m;
-  m.type = MATERIAL_DIFFUSE_LIGHT;
-  m.scatter = no_scatter;
-  m.diff_light_color= color;
-  m.albedo = NULL;
-  return m;
-}
-
-Material create_spot_light( const v3 &color, float angle ){
-  Material m;
-  m.type = MATERIAL_SPOT_LIGHT;
-  m.scatter = no_scatter;
-  m.spot_light_color= color;
-  m.angle = HMM_CosF( HMM_RADIANS(angle) );
-  m.albedo = NULL;
-  return m;
-}
-
 
 bool hit_plane(
     Plane &p,
@@ -337,6 +320,87 @@ bool refraction_scatter(
   }
 
   return true;
+}
+inline bool no_scatter(
+    const HitRecord &h,
+    const Ray &in,
+    v3 &attenuation,
+    Ray &out ){ return false; }
+
+Material create_diffuse_light( const v3 &color ){
+  Material m;
+  m.type = MATERIAL_DIFFUSE_LIGHT;
+  m.scatter = no_scatter;
+  m.diff_light_color= color;
+  m.albedo = NULL;
+  return m;
+}
+
+Material create_spot_light( const v3 &color, float angle ){
+  Material m;
+  m.type = MATERIAL_SPOT_LIGHT;
+  m.scatter = no_scatter;
+  m.spot_light_color= color;
+  m.angle = HMM_CosF( HMM_RADIANS(angle) );
+  m.albedo = NULL;
+  return m;
+}
+
+Material create_material_metallic( Texture &tex, float fuzz ){
+  Material m;
+  m.type = MATERIAL_METALLIC;
+  m.scatter = metallic_scatter;
+  m.albedo = &tex;
+  m.fuzz = fuzz;
+  return m;  
+}
+
+Material create_material_glass( Texture &tex, float ri ){
+  Material m;
+  m.type = MATERIAL_GLASS;
+  m.scatter = metallic_scatter;
+  m.albedo = &tex;
+  m.ri = ri;
+  return m;
+}
+
+Material create_material_pure_diffuse( Texture &tex ){
+  Material m;
+  m.type = MATERIAL_PURE_DIFFUSE;
+  m.scatter = pure_diffuse_scatter;
+  m.albedo = &tex;
+  return m;
+}
+
+
+bool hit_rect(
+    Rectangle &r,
+    const Ray &ray,
+    float tmin,
+    float tmax,
+    HitRecord &record )
+{
+  float d = ( HMM_DotVec3( ray.direction, r.n ) );
+  if ( fabs( d ) < TOLERANCE )
+    return false;
+  v3 temp = r.p0 - ray.start;
+  float t = HMM_DotVec3( temp, r.n )/d ;
+  if ( t > tmin && t < tmax ){
+    v3 point = ray.point_at( t );
+    v3 t1 = point - r.p0;
+    f32 d1 = HMM_DotVec3( r.s1, t1 );
+    f32 d2 = HMM_DotVec3( r.s2, t1 );
+
+    if ( ( d1 > 0 && d1 < r.l1 ) && ( d2 > 0 && d2 < r.l2 ) ){
+      record.t = t;
+      record.p = ray.point_at( t );
+      record.n = r.n;
+      record.m = r.m; 
+      return true;
+    }
+    return false;  
+  }
+  return false;
 }
 
 
@@ -451,7 +515,11 @@ void world_add_plane( World &w, Plane p ){
 }
 void world_add_rect( World &w, AARect r ){
   assert( w.rect_count+ 1 <= w.rect_cap );
-  w.rects[ w.rect_count++ ] = r;
+  w.aa_rects[ w.rect_count++ ] = r;
+}
+void world_add_rectangle( World &w, Rectangle &r ){
+  assert( w.rect_count+ 1 <= w.rect_cap );
+  w.rectangles[ w.rect_count++ ] = r;
 }
 
 struct PrimInfo {
@@ -652,7 +720,15 @@ BVHNode *create_bvh_tree(
         )
     );
   }
-#if 1
+
+  for ( size_t i = 0; i < w.rect_count; i++ ){
+    prim.push_back(
+        PrimInfo( PrimInfo::RECTANGLE,
+          (void *)( w.rectangles+ i ),
+          rectangle_AABB( *(w.rectangles+i) ) )
+        );
+  }
+#if 0
   for ( size_t i = 0; i < w.plane_count; i++ ){
     prim.push_back(
         PrimInfo( PrimInfo::PLANE,
@@ -661,7 +737,6 @@ BVHNode *create_bvh_tree(
           )
     );
   }
-#endif
   for ( size_t i = 0; i < w.rect_count; i++ ){
     prim.push_back(
         PrimInfo( PrimInfo::RECTANGLE,
@@ -670,6 +745,7 @@ BVHNode *create_bvh_tree(
           )
     );
   }
+#endif
 
   return bvh_recursive_build( arena, &prim[0], 0, prim.size(), ordered_prims );
 }
@@ -705,7 +781,16 @@ bool bvh_leaf_hit(
         }
         break;
       case PrimInfo::RECTANGLE:
+#if 0
         if( hit_AARect( *( (AARect*)p.data), r, tmin, tmax, temp) ){
+          hit_anything = true;
+          tmax = temp.t;
+          rec = temp;
+        }
+#endif
+        if( hit_rect( *( (Rectangle *)p.data),
+              r, tmin, tmax, temp) )
+        {
           hit_anything = true;
           tmax = temp.t;
           rec = temp;
@@ -800,13 +885,10 @@ v3 get_ray_color(
     v3 end = { 0.5f, 0.7f, 1.0f };
     return ( 1.0 - t ) * start + t * end;
 #else
-    return v3{0.0f,0.0f,0.0f};
+    return v3{0.03f,0.03f,0.03f};
 #endif
 }
 
-void print_v3( const v3 &v ){
-  fprintf( stdout,"%f, %f, %f",v.X,v.Y,v.Z );
-}
 
 void print_aabb( const AABB &b ){
   fprintf( stdout, "Max. bound: " );
@@ -860,11 +942,19 @@ void print_plane_info( Plane *p){
   fprintf(stdout,"\nPoint: ");
   print_v3( p->p );
 }
-void print_rect_info( AARect *r ){
+void print_rect_info( Rectangle *r ){
   fprintf(stdout,"Normal: " );
   print_v3( r->n );
-  fprintf(stdout,"\nndim = %d, d0 = %d, d1 = %d\n",
-         r->ndim, r->d0, r->d1 );
+  fprintf( stdout, "\ncorner point: " );
+  print_v3( r->p0 );
+
+  fprintf( stdout, "\nVector s1: " );
+  print_v3( r->s1 );
+  fprintf( stdout, "\nVector s2: " );
+  print_v3( r->s2 );
+
+  fprintf( stdout, "\nl1 = %f, l2 = %f\n", r->l1, r->l2 );
+
 }
 
 void print_priminfo( PrimInfo *p ){
@@ -879,123 +969,161 @@ void print_priminfo( PrimInfo *p ){
       break;
     case PrimInfo::RECTANGLE:
       fprintf(stdout,"Rectangle\n" );
-      print_rect_info( (AARect *)p->data );
+      print_rect_info( (Rectangle *)p->data );
       break;
   }
+}
+
+void world_decode_sphere_data( 
+    World &w,
+    const DumpObjectData &data,
+    Texture *textures,
+    Material *materials)
+{
+  
+}
+
+
+Texture dump_get_texture( const DumpObjectData &d, Perlin *perlin){
+  Texture t;
+  switch( d.texture_type ){
+    case DumpObjectData::TEXTURE_NONE:
+      break;
+    case DumpObjectData::TEXTURE_PLAIN_COLOR:
+      t = create_texture_plain( d.texture_data.color );
+      break;
+    case DumpObjectData::TEXTURE_CHECKER:
+      t = create_texture_checker( d.texture_data.checker_color[0],
+                                  d.texture_data.checker_color[1] );
+      break;
+    case DumpObjectData::TEXTURE_MARBLE:
+      t = create_texture_marble( perlin,
+                                 d.texture_data.marble_color);
+      break;
+    default:
+      fprintf( stderr, "Unknown Texture detected!\n" );
+      break;
+  }
+  return t;
+}
+Material dump_get_material(
+    const DumpObjectData &d,
+    Texture &tex )
+{
+  Material m;
+  switch( d.material_type ){
+    case DumpObjectData::MATERIAL_DIFFUSE_LIGHT:
+      m = create_diffuse_light( d.material_data.diff_light_color );
+      break;
+    case DumpObjectData::MATERIAL_PURE_DIFFUSE:
+      m = create_material_pure_diffuse( tex );
+      break;
+    case DumpObjectData::MATERIAL_METALLIC:
+      m = create_material_metallic( tex, d.material_data.fuzz );
+      break;
+    case DumpObjectData::MATERIAL_GLASS:
+      m = create_material_glass( tex, d.material_data.ri);
+      break;
+    case DumpObjectData::MATERIAL_SPOT_LIGHT:
+      m = create_spot_light( d.material_data.spot_light_color, 
+                             d.material_data.angle );
+      break;
+  }
+  return m;
+}
+
+void world_get_from_file(
+    const char *path,
+    Texture *textures,
+    Material *materials,
+    Perlin *perlin,
+    World &w, 
+    Camera &camera,
+    float *aspect_ratio )
+{
+  FILE *fp = fopen( path, "rb" );
+  
+  DumpCameraData camera_data;
+  fread( &camera_data, sizeof(camera_data),1, fp );
+
+  Camera c(
+      camera_data.look_from,
+      camera_data.look_at,
+      camera_data.z,
+      camera_data.vfov,
+      camera_data.aspect_ratio,
+      camera_data.aperture,
+      camera_data.focal_dist
+  );
+  camera = c;
+  *aspect_ratio = camera_data.aspect_ratio;
+  uint32 data_count;
+  fread( &data_count, sizeof(data_count), 1, fp );
+  DumpObjectData *object_data = array_allocate( DumpObjectData,
+                                         data_count );
+  fread( object_data, sizeof(*object_data), data_count, fp );
+
+  
+  for ( uint i = 0; i < data_count; i++ ){
+    const DumpObjectData &data = object_data[i];
+    array_push( textures, dump_get_texture( data, perlin ) );
+    array_push( materials, dump_get_material( data,
+          textures[ array_length(textures)- 1] ) );
+    Material *m = &materials[ array_length(materials) - 1];
+    switch ( data.type ){
+      case DumpObjectData::RECTANGLE:
+        {
+          Rectangle rect;
+          rect.p0 = data.object_data.p0;
+          rect.s1 = data.object_data.s1;
+          rect.s2 = data.object_data.s2;
+          rect.n = data.object_data.n;
+          rect.l1 = data.object_data.l1;
+          rect.l2 = data.object_data.l2;
+          rect.p1 = rect.p0 + rect.l1 * rect.s1;
+          rect.p2 = rect.p0 + rect.l1 * rect.s1 + rect.l2 * rect.s2;
+          rect.p3 = rect.p0 + rect.l2 * rect.s2;
+          rect.box = rectangle_AABB( rect ) ;
+          rect.m = m;
+          world_add_rectangle( w, rect );
+        }
+        break;
+
+      case DumpObjectData::SPHERE:
+        {
+          Sphere sphere( data.object_data.center, 
+              data.object_data.radius, m );
+          world_add_sphere( w, sphere );
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  array_free( object_data );
 }
 
 
 
 int main( ){
   prng_seed();
-  int nx = 400;
   int ny = 300;
-  uint64 samples = 10000;
-  float total_pixels = nx * ny; 
+  uint64 samples = 100;
   Arena perlin_arena = new_arena();
   Perlin perlin = create_perlin( &perlin_arena, 4.0f,256 );
 //  Texture tex_perlin = create_texture_perlin( &perlin );
-  Texture tex_marble_white = create_texture_marble( &perlin,
-                             v3{1.0f,1.0f,1.0f} );
-  Texture tex_marble_pink = create_texture_marble( &perlin,
-                            v3{ 0.8f, 0.3f, 0.3f } );
-  Texture tex_plain_white = create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
-  Texture tex_weak_white= create_texture_plain(v3{ 0.8f, 0.8f, 0.8f } );
-  Texture tex_plain_red = create_texture_plain(v3{ 0.8f, 0.0f, 0.0f } );
-  Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
-  Texture tex_plain_green = create_texture_plain(v3{ 0.12f, 0.45f, 0.15f } );
-#if 0 
-  Texture tex_plain_green = create_texture_plain( v3{ 0.8f, 0.8f, 0.0f } );
-  Texture tex_plain_blue = create_texture_plain(v3{ 0.1f, 0.2f, 0.5f } );
-  Texture tex_plain_pink = create_texture_plain(v3{ 0.8f, 0.3f, 0.3f } );
-  Texture tex_plain_black = create_texture_plain(v3{ 0.1f, 0.1f, 0.1f } );
-  Texture tex_plain_pure_white = create_texture_plain(v3{ 1.0f, 1.0f, 1.0f } );
-  Texture tex_checker_black_and_white = create_texture_checker(
-                              v3{0.2,0.3,0.1},
-                              v3{0.9,0.9,0.9});
-  Material mat_pure_diffuse_white( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_white, 0.0f );
-
-  Material mat_pure_diffuse_pink( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_pink, 0.0f );
+  
+  Texture *textures = array_allocate( Texture, 100 );
+  Material *materials = array_allocate( Material, 100 );
+  
+  World world = {};
+  Camera camera;
 
 
-  Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_green,0.0f );
-
-  Material mat_metallic( MATERIAL_METALLIC,
-                         metallic_scatter,
-                         &tex_plain_black,
-                         0.3f);
-
-
-  Material mat_matte_checker( MATERIAL_PURE_DIFFUSE,
-                              pure_diffuse_scatter,
-                              &tex_checker_black_and_white,
-                              0.0f );
-                              
-  Material mat_pure_glass( MATERIAL_GLASS,
-                         refraction_scatter,
-                         &tex_plain_pure_white,
-                         1.5f );
-#endif
-  Material mat_pure_diffuse_white( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_white, 0.0f );
-  Material mat_pure_metallic( MATERIAL_METALLIC,
-                         metallic_scatter,
-                         &tex_plain_white,
-                         0.0f);
-//  Material mat_matte_perlin( MATERIAL_PURE_DIFFUSE,
-//                              pure_diffuse_scatter,
-//                              &tex_perlin,
-//                              0.0f );
- Material mat_fuzzy( MATERIAL_METALLIC,
-                         metallic_scatter,
-                         &tex_plain_blue,
-                         0.042f );
-                        
-  Material mat_white_marble( MATERIAL_PURE_DIFFUSE,
-                              pure_diffuse_scatter,
-                              &tex_marble_white,
-                              0.0f );
-  Material mat_pink_marble( MATERIAL_PURE_DIFFUSE,
-                              pure_diffuse_scatter,
-                              &tex_marble_pink,
-                              0.0f );
-  Material mat_shiny_marble( MATERIAL_METALLIC,
-                              metallic_scatter,
-                              &tex_marble_white,
-                              0.422f );
-  Material mat_pure_diffuse_red( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_red,0.0f );
-  Material mat_light = create_diffuse_light( v3{12,12,12} );
-  Material mat_spotlight = create_spot_light( v3{12,12,12}, 20 );
-  Material mat_pure_diffuse_blue( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_blue, 0.0f );
-  Material mat_weak_white( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_weak_white, 0.0f );
-  Material mat_pure_diffuse_green( MATERIAL_PURE_DIFFUSE,
-                         pure_diffuse_scatter,
-                         &tex_plain_green, 0.0f );
   v3 lf = { 0,1,5.5 };
   v3 lat = { 0,1,-1 };
   float f = HMM_LengthVec3( lat - lf );
-  Camera camera(
-      lf,
-      lat,
-      40, ( float )nx/ny,
-      0.00f,
-     f 
-      );
-  World world = {};
-  world.sph_cap = 10;
+  world.sph_cap = 20;
   world.spheres = ( Sphere * )malloc(
                   sizeof(Sphere )* world.sph_cap );
 
@@ -1003,11 +1131,24 @@ int main( ){
   world.planes = ( Plane * )malloc(
                   sizeof(Plane)* world.plane_cap );
 
-  world.rect_cap= 20;
-  world.rects = ( AARect* )malloc(
+  world.aa_rect_cap= 50;
+  world.aa_rects = ( AARect* )malloc(
                   sizeof(AARect)* world.rect_cap);
-  assert( world.spheres );
 
+  world.rect_cap= 50;
+  world.rectangles = ( Rectangle * )malloc( 
+                  sizeof(Rectangle) * world.rect_cap );
+  assert( world.spheres );
+  float aspect_ratio = 0;
+  world_get_from_file("./bin/dump_file0.dat",
+      textures,
+      materials,
+      &perlin,
+      world,
+      camera,
+      &aspect_ratio );
+  int nx = (int)( ny * aspect_ratio );
+  float total_pixels = nx * ny; 
 #if 0
   AARect rect1(
       AARect::PLANE_XY,
@@ -1032,7 +1173,6 @@ int main( ){
   //                        &mat_matte_checker,
   //                  AABB(v3{-100.0f,-0.6f,-100.0f},v3{100.0f, -0.4f, 100.0f}) )
   //               );
-#else
    float xleft = -1.5f, xright = 1.5f;
    float ytop = 2.051f, ybot = 0.0f;
    float zfront = 3.5f, zback = 0.0f;

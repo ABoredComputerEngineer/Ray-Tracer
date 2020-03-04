@@ -63,7 +63,7 @@ Cube create_cube_one_color( float len, v3 pos, v3 color )
   }
   cube.base_transform = HMM_Translate(pos) *
                         HMM_Scale( v3{ len, len, len } ); 
-  cube.orientation = HMM_QuaternionFromAxisAngle( v3{1.0f,1.0f,1.0f}, 0.0f );
+  cube.orientation = HMM_QuaternionFromAxisAngle( v3{0.0f,1.0f,0.0f}, 0.0f );
   cube.bounds = cube_get_AABB( &cube, cube.base_transform );
   return cube;
 }
